@@ -1,0 +1,4 @@
+# Thư viện mật mã chuẩn (được phép dùng cho Bước 8; KHÔNG phải thư viện mạng)
+cryptography>=42.0
+# Chỉ dùng để chạy test
+pytest>=8.0

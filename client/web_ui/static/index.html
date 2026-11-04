@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <title>Collab App</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- [B – Bước 9] Khung giao diện. Mọi logic nằm trong app.js (chỉ JavaScript phía client). -->
+  <section id="login">
+    <h2>Đăng nhập</h2>
+    <input id="username" placeholder="Tên đăng nhập" value="alice">
+    <input id="password" type="password" placeholder="Mật khẩu" value="alice123">
+    <button id="loginBtn">Đăng nhập</button>
+    <p id="loginErr" class="err"></p>
+  </section>
+
+  <section id="app" hidden>
+    <header>
+      <b id="me"></b>
+      <span id="net">● đang kết nối</span>
+    </header>
+    <div class="cols">
+      <aside>
+        <h3>Đang online</h3>
+        <ul id="users"></ul>
+        <small>Bấm tên để chat riêng. Bấm lại để về chat chung.</small>
+      </aside>
+      <main>
+        <div id="log"></div>
+        <div id="transfers"></div>
+        <div class="row">
+          <span id="target">Chat chung</span>
+          <input id="text" placeholder="Nhập tin nhắn…">
+          <button id="sendBtn">Gửi</button>
+          <input id="file" type="file" hidden>
+          <button id="fileBtn">Gửi file</button>
+        </div>
+      </main>
+    </div>
+  </section>
+  <script src="/static/app.js"></script>
+</body>
+</html>

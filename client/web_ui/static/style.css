@@ -1,0 +1,15 @@
+/* [B – Bước 9] Giao diện tối giản. Tự do chỉnh sửa. */
+body { font-family: system-ui, sans-serif; margin: 0; background: #f5f6f8; color: #222; }
+section#login { max-width: 320px; margin: 15vh auto; display: grid; gap: 8px; }
+header { padding: 8px 16px; background: #243b55; color: #fff; display: flex; justify-content: space-between; }
+.cols { display: flex; height: calc(100vh - 40px); }
+aside { width: 200px; padding: 12px; background: #fff; border-right: 1px solid #ddd; }
+aside ul { list-style: none; padding: 0; }
+aside li { padding: 6px; cursor: pointer; border-radius: 4px; }
+aside li:hover, aside li.sel { background: #dbe7f7; }
+main { flex: 1; display: flex; flex-direction: column; padding: 12px; min-width: 0; }
+#log { flex: 1; overflow-y: auto; background: #fff; border: 1px solid #ddd; padding: 8px; }
+.row { display: flex; gap: 6px; margin-top: 8px; align-items: center; }
+.row input[type=text], #text { flex: 1; }
+.private { color: #8a2be2; } .mine { color: #555; } .ok { color: #1a7f37; } .err { color: #c62828; }
+progress { width: 100%; margin: 4px 0; } .offer { background: #fff8e1; padding: 6px; margin: 4px 0; }
