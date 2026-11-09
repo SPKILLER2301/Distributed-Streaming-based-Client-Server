@@ -1,9 +1,9 @@
 # PIPELINE — Hướng dẫn hoàn thiện Assignment 1
 
-> Cập nhật: 08/11/2026. Đây là hướng dẫn thực hiện, đối chiếu trực tiếp với mã nguồn hiện có.
-> **Nguồn yêu cầu chính thức duy nhất:** [Assignment 1 - Distributed Streaming-based Client-Server Collaboration Application.docx](<Assignment 1 - Distributed Streaming-based Client-Server Collaboration Application.docx>).
-> **`reference/` chỉ để tham khảo.** Không lấy yêu cầu P2P, proxy, cookie, channel hay raw TCP tự dựng trong đó để thay thế DOCX.
-> Phân công cũ: [WORKPLAN.md](WORKPLAN.md). Những chỗ còn khác với tài liệu này cần được cập nhật; chưa coi WORKPLAN cũ là kế hoạch đã chốt.
+> Cập nhật phân công: 09/11/2026. Đây là hướng dẫn thực hiện, đối chiếu trực tiếp với mã nguồn hiện có.
+> **Căn cứ nghiệm thu 10 rubric:** [Assignment 1 - Distributed Streaming-based Client-Server Collaboration Application.docx](<Assignment 1 - Distributed Streaming-based Client-Server Collaboration Application.docx>).
+> **`reference/` cung cấp tài liệu và code mẫu để giải thích kỹ thuật.** Đối chiếu cụ thể ở mục 1.2; các yêu cầu khác biệt như P2P/raw TCP không tự thay thế rubric DOCX.
+> Phân công hiện hành, lịch và nghiệm thu: [WORKPLAN.md](WORKPLAN.md). A phụ trách transport/crypto/CUBIC; B phụ trách app/file/UI; cả hai tích hợp và kiểm thử.
 
 ## 0. Cách sử dụng tài liệu này
 
@@ -42,14 +42,30 @@ Ngoài bảng 10 Step, DOCX còn nêu: tách network/data/UI; async streaming; l
 
 **Chọn CUBIC làm mục cần thực hiện** để đáp ứng phần Techniques. AIMD hiện tại là baseline. Không tiếp tục ghi “AIMD chắc chắn đủ điểm” hay cắt CUBIC đầu tiên khi chưa có xác nhận thay đổi yêu cầu.
 
-### 1.2 Giải quyết các chỗ DOCX chưa thống nhất
+### 1.2 Đối chiếu DOCX với reference: điểm đã rõ và khác biệt còn lại
 
-1. **TCP và UDP:** DOCX vừa nhắc TCP cho file/message trong Techniques, vừa yêu cầu custom UDP trong mục tiêu và truyền file UDP ở Step 6. Thiết kế dung hòa của nhóm: TCP bootstrap đáp ứng Step 2; chat/file dùng transport UDP tự xây. Ghi quyết định này vào báo cáo. Đây là cách triển khai được chọn, không phải khẳng định DOCX hết mâu thuẫn.
-2. **UI:** mục Design cho phép CLI/GUI nhưng Step 9 nói rõ HTTP + JavaScript. Chọn Web UI để đáp ứng rubric cụ thể.
-3. **`asyncio`:** giữ để thực hiện async I/O mà DOCX cho phép. Mẫu tham khảo cũng dùng `asyncio.start_server`, hỗ trợ lựa chọn này nhưng không phải văn bản cấp phép thay DOCX.
-4. **`http.server`:** không dùng trong kế hoạch này. Giữ parser/response HTTP tự viết trên `asyncio.start_server`; không cần đổi sang `socket + selectors` chỉ do lo tên gọi “high-level”.
-5. **Raw socket:** không tự suy ra phải dùng `SOCK_RAW`, dựng IP/TCP header hoặc chạy sudo như mẫu. Dự án dùng socket UDP/TCP qua Python và tự viết protocol ứng dụng/reliability. Không có task viết lại TCP stack.
-6. **P2P:** giữ server relay theo Step 5 DOCX. Không thêm direct P2P vì PDF tham khảo có yêu cầu đó.
+Nguồn đối chiếu: [PDF StreapRous](<reference/CO3094_assignment_streaprous (1).pdf>) (số trang tính từ đầu PDF) và [code mẫu](reference/CO3094_streaprous/README.md). PDF trang 12, mục 3.2–3.3 dẫn yêu cầu và cách chấm về bản mô tả Assignment 1 đã được thiết lập, nhưng không nêu đích danh file DOCX hiện tại. Vì vậy, dùng DOCX để nghiệm thu đủ 10 rubric và dùng reference để giải thích kỹ thuật là **cách đối chiếu của nhóm**, không phải xác nhận thêm từ giảng viên.
+
+#### Những điểm reference làm rõ
+
+| Nội dung | Bằng chứng | Kết luận áp dụng |
+|---|---|---|
+| HTTP UI, JavaScript phía client | PDF trang 9–10 mô tả webapp; trang 10 yêu cầu JavaScript chỉ phía client, backend Python, không dùng web framework có sẵn | Web UI phù hợp Step 9. CLI/GUI trong phần Design là mô tả rộng, Step 9 cụ thể hóa giao diện; không cần coi đây là mâu thuẫn chưa giải quyết |
+| Async I/O | PDF trang 10 cho phép callback/coroutine; `daemon/backend.py`, hàm `async_server`, gọi `asyncio.start_server` | Có căn cứ trực tiếp để giữ `asyncio`; không có task chuyển sang selectors chỉ vì lo tên gọi “high-level” |
+| Tự xử lý HTTP | `daemon/httpadapter.py`, `request.py`, `response.py` xử lý HTTP trong mẫu | Giữ parser/response HTTP tự viết. Không dùng `http.server` là lựa chọn triển khai của nhóm, không khẳng định riêng module đó bị đề cấm |
+
+#### Lựa chọn triển khai cần phân biệt với yêu cầu
+
+**Raw socket:** PDF trang 7–8 mô tả raw TCP; `streaprous_socket/streaprous_raw_connection.py`, hàm `create_raw_socket`, thực sự dùng `SOCK_RAW` + `IPPROTO_TCP`, kèm dựng header và handshake. Tuy nhiên, code `daemon/backend.py` cũng có nhánh coroutine dùng `asyncio.start_server` và hàm `run_backend_standard` dùng `SOCK_STREAM`. Điều này cho thấy mẫu có nhiều đường triển khai, không chứng minh mọi kết nối của bài DOCX phải dùng `SOCK_RAW`. Nhóm chọn socket UDP/TCP thông thường và tự xây protocol/reliability; không đưa việc tự viết TCP stack vào kế hoạch. Đây là lựa chọn có căn cứ, không phải lời xác nhận rằng nhánh raw TCP của mẫu bị cấm hoặc không liên quan.
+
+**SSE:** nhóm chọn SSE để đẩy sự kiện UI qua HTTP. Không coi SSE là yêu cầu hoặc giải pháp được reference chỉ định.
+
+#### Những khác biệt reference chưa giải quyết
+
+1. **TCP/UDP:** DOCX nhắc TCP cho file/message trong Techniques, nhưng mục tiêu yêu cầu custom UDP và Step 6 yêu cầu file qua UDP. PDF trang 7–8 minh họa raw TCP với TCP handshake và byte stream có thứ tự; không giải thích cách thay thế yêu cầu UDP của DOCX. Nhóm giữ **TCP bootstrap cho Step 2, chat/file qua UDP tự xây**. Đây là phương án của nhóm để đáp ứng rubric, không phải kiến trúc được reference xác nhận.
+2. **P2P/server relay:** PDF trang 9 yêu cầu peer chat trực tiếp, không qua server trong phiên chat; Step 5 DOCX yêu cầu server broadcast/forward. Nhóm giữ **server relay theo Step 5** và ghi rõ khác biệt trong báo cáo. Không coi P2P là đã đáp ứng bằng relay, cũng không tự thêm P2P/proxy/cookie/channel vào rubric DOCX.
+
+Khi có hướng dẫn chính thức bổ sung về hai khác biệt trên, cập nhật quyết định và phạm vi liên quan. Trong kế hoạch hiện tại, **không bỏ bất kỳ bước nào trong 10 rubric**, đặc biệt TCP Step 2, UDP file Step 6 và HTTP UI Step 9.
 
 **Không dùng:** Flask, Django, WebSocket; thư viện transport làm sẵn thay phần reliability cần tự xây.
 
@@ -187,7 +203,7 @@ Các dấu tick trên chỉ ghi nhận **có triển khai**, không phải giấ
 |---|---|---|
 | `test_no_head_of_line_blocking` | `tests/test_reliability.py` | A |
 | `test_peer_disconnect_detected` | `tests/test_reliability.py` | A |
-| `test_file_over_lossy_network` | `tests/test_file_transfer.py` | A phối hợp B |
+| `test_file_over_lossy_network` | `tests/test_file_transfer.py` | B chủ trì, A hỗ trợ simulator |
 | `test_client_crash_is_cleaned_up` | `tests/test_auth_routing.py` | B |
 
 Không chỉ xóa decorator `skip`: phải viết thân test và assertion thật.
@@ -197,7 +213,7 @@ Không chỉ xóa decorator `skip`: phải viết thân test và assertion thậ
 ```text
 collab-app/
 ├── pipeline.md                    hướng dẫn này
-├── WORKPLAN.md                    phân công/lịch, cần đồng bộ lại
+├── WORKPLAN.md                    phân công/lịch hiện hành
 ├── README.md                      hướng dẫn chạy cho người chấm
 ├── requirements.txt               cryptography, pytest
 ├── common/
@@ -421,7 +437,7 @@ Không phải mọi cơ chế của QUIC đều cần đưa vào. Nếu chọn R
 
 ## 9. Bước congestion control — hoàn thiện CUBIC
 
-**Phụ trách:** A chốt interface/recovery; B có thể triển khai CUBIC sau đó. **File:** `transport/congestion.py`, `transport/connection.py`, test congestion mới nếu cần.
+**Phụ trách:** A triển khai CUBIC và tích hợp recovery; B kiểm tra cùng tải ứng dụng. **File:** `transport/congestion.py`, `transport/connection.py`, test congestion mới nếu cần.
 
 1. Giữ AIMD làm baseline để so sánh; ghi tên thuật toán đang bật trong cấu hình/log.
 2. Chốt đơn vị của `cwnd` và `ssthresh`: hiện là số packet. Không trộn với byte khi thêm thuật toán mới.
@@ -520,7 +536,7 @@ Phân biệt bốn số:
 
 ## 12. Bước security — giữ mã hóa và sửa các giới hạn được phát hiện
 
-**Phụ trách:** B; thay header/control packet cần A phối hợp. **Rubric:** Step 3 và 8.
+**Phụ trách:** A làm crypto/nonce/control packet và test transport; B làm password storage/auth và kiểm thử tích hợp. **Rubric:** Step 3 và 8.
 
 ### 12.1 Những gì cần chứng minh cho Step 8
 
@@ -687,7 +703,7 @@ Lưu kết quả thực tế trong `docs/evidence/`; không điền số ước 
 4. Sửa câu “không dùng TCP” thành: TCP cho bootstrap và HTTP UI; chat/file dùng UDP tin cậy.
 5. Không để số pass/skip cũ sau khi test thay đổi. Phân công nội bộ để trong WORKPLAN, không trộn vào hướng dẫn chạy cho người chấm.
 6. Sửa comment/TODO và owner cũ trong code nếu chức năng đã làm xong; không để nút Từ chối đã có nhưng tài liệu vẫn nói chưa có.
-7. Đồng bộ WORKPLAN: A8 thành công việc mặc định; CUBIC không cắt đầu tiên; phân lại bốn test skip; chốt API Endpoint; tính cả giờ A tham gia test LAN.
+7. Giữ khớp WORKPLAN: A2 làm TCP bootstrap mặc định, A4 làm CUBIC; B6 nhận test file qua loss; chốt API Endpoint; J3 tính giờ LAN cho cả hai.
 
 ### 16.2 Báo cáo PDF theo đúng DOCX
 
@@ -727,19 +743,17 @@ Môi trường + baseline
 
 A và B có thể làm đồng thời ở các phần đã có hợp đồng API: B sửa file rỗng, transfer state, UI và password storage trong khi A làm transport. Backpressure/progress cần A chốt API trước; không làm hai phiên bản API khác nhau rồi ghép sát hạn.
 
-### 17.2 Chia việc gợi ý
+### 17.2 Phân công hiện hành
 
-| Người | Phần chính | Điểm cần phối hợp |
+Chi tiết task, owner file, giờ, lịch và nghiệm thu: [WORKPLAN.md](WORKPLAN.md).
+
+| Người | Phần chính | Bàn giao |
 |---|---|---|
-| A | packet/stream/connection/endpoint, bootstrap, reliability, flow control, scheduler, test transport, đặc tả transport | Với B về crypto, CUBIC và API gửi/ACK/credit |
-| B | auth/registry/router/client/file/UI, test app/load, README và ghép báo cáo | Với A về backpressure, cancel và file qua loss |
-| Cả hai | Chốt protocol, review, test LAN, kiểm máy sạch, vấn đáp | Có giờ chung và ghi kết quả |
+| A | A1–A8: transport, TCP bootstrap, reliability, CUBIC, crypto, credit/scheduler, test và đặc tả | API gửi có chờ, ACK bytes, consume credit, cancel/close, stats; module bootstrap |
+| B | B1–B7: auth/registry/router/client/file/UI, tích hợp bootstrap, reconnect, test app/file/load, README và PDF | Message/file states, producer/relay dùng API A, progress và kết quả đầu cuối |
+| Cả hai | J1–J4: baseline/API, review/tích hợp, LAN, bản nộp sạch/đọc chéo | Có bằng chứng trước khi đánh dấu xong |
 
-Nếu B làm CUBIC trong file do A quản lý, bàn giao phạm vi và interface trước; không sửa chồng lên nhau.
-
-WORKPLAN cũ cộng A = 43 giờ, B = 50 giờ là đúng số học nhưng A còn khoảng 3 giờ tham gia B10, chưa kể review/họp/sửa lỗi. Các thay đổi TCP/CUBIC/credit có thể tăng công; phải ước lượng lại sau baseline, không coi 44 giờ/người đã đủ chắc chắn.
-
-Ngày audit 07/11 trong WORKPLAN đã qua tại thời điểm viết tài liệu này. Không tự đánh dấu audit hoàn thành vì quá hạn; điền kết quả thực tế rồi dời mốc còn lại. Mốc “mọi Step chạy được” chỉ đặt sau khi bootstrap, file, UI và test cơ bản đều có bằng chứng.
+A và B mỗi người 44 giờ riêng + 8 giờ chung = **52 giờ/người**, thêm dự phòng 4–6 giờ/người. Lịch từ 09/11 cần khoảng 6,5 giờ/ngày đến 16/11, chưa tính dự phòng; ước lượng lại sau baseline. Không coi audit 07/11 cũ đã xong. Mốc mọi Step chạy được cần bằng chứng bootstrap, file, UI và test cơ bản.
 
 ### 17.3 Nếu không đủ thời gian
 
@@ -783,3 +797,4 @@ Chỉ tick sau khi chạy hoặc kiểm tra có bằng chứng:
 - [ ] Báo cáo PDF đủ mục DOCX; bản nộp ZIP/private repo mở được.
 
 **Việc nên bắt đầu ngay:** làm mục 5 để có baseline thật, rồi mục 6 để chốt API. Sau đó mới chia các sửa đổi transport và app; không tiếp tục sửa theo những giả định “pipeline nói đã có” của bản cũ.
+

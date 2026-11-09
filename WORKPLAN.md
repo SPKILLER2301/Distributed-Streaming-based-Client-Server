@@ -1,7 +1,7 @@
-﻿# WORKPLAN — Phân công A/B hoàn thiện Assignment 1
+# WORKPLAN — Phân công A/B hoàn thiện Assignment 1
 
 > Cập nhật: **09/11/2026**. Căn cứ: [README](README.md), [pipeline](pipeline.md) và [đề bài DOCX](<Assignment 1 - Distributed Streaming-based Client-Server Collaboration Application.docx>).
-> DOCX quy định yêu cầu; pipeline hướng dẫn triển khai; WORKPLAN quy định người làm, phụ thuộc và nghiệm thu. Đây là kế hoạch, chưa xác nhận task nào hoàn thành.
+> DOCX là căn cứ nghiệm thu 10 rubric; reference hỗ trợ giải thích kỹ thuật theo pipeline mục 1.2; pipeline hướng dẫn triển khai; WORKPLAN quy định người làm, phụ thuộc và nghiệm thu. Đây là kế hoạch, chưa xác nhận task nào hoàn thành.
 
 ## 1. Cách chia lại và phạm vi
 
@@ -14,9 +14,9 @@ Giữ crypto và CUBIC ở A vì chúng liên quan trực tiếp tới ACK/recov
 Các quyết định bám đề:
 
 1. **TCP bootstrap là công việc mặc định** theo Step 2. A làm module, B tích hợp vào đường khởi động thật. HTTP browser–daemon không thay thế kết nối client–server này.
-2. Chat/file dùng **UDP tin cậy tự xây**, server relay. TCP bootstrap + UDP là lựa chọn dung hòa các đoạn TCP/UDP chưa thống nhất trong DOCX; giải thích lựa chọn trong báo cáo.
+2. Chat/file dùng **UDP tin cậy tự xây**, server relay. TCP bootstrap + UDP là lựa chọn của nhóm để dung hòa các đoạn TCP/UDP chưa thống nhất trong DOCX, chưa được reference xác nhận. PDF reference trang 7–8 minh họa raw TCP; trang 9 yêu cầu direct P2P khác với server relay ở Step 5. Ghi cả hai khác biệt và lựa chọn trong báo cáo.
 3. **CUBIC nằm trong phạm vi cần làm** theo phần Techniques (BBR/CUBIC), không phải việc cắt đầu tiên. AIMD hiện tại là baseline.
-4. Giữ HTTP server tự viết trên socket/`asyncio`, JavaScript phía client và SSE; không Flask/Django/WebSocket. Không thêm P2P hoặc tự viết TCP stack theo tài liệu tham khảo.
+4. Giữ HTTP server tự viết trên socket/`asyncio`, JavaScript phía client; PDF reference trang 10 và `daemon/backend.py` hỗ trợ trực tiếp hướng này. HTTP UI cụ thể hóa Step 9, không còn xếp CLI/GUI là mâu thuẫn. SSE là lựa chọn của nhóm; không Flask/Django/WebSocket. Mẫu có cả raw TCP và nhánh socket/asyncio thông thường: nhóm không thêm việc tự viết TCP stack. Không dùng `http.server` là lựa chọn triển khai, không phải lệnh cấm riêng được xác nhận từ đề. Chi tiết và nguồn: [pipeline §1.2](pipeline.md#12-đối-chiếu-docx-với-reference-điểm-đã-rõ-và-khác-biệt-còn-lại).
 5. Chọn 20 client để kiểm mức 10–20 client của đề. Loss 10%, file 10/100 MB và ngưỡng RAM/latency là tiêu chí thử nghiệm nội bộ, không phải điểm rubric riêng.
 6. Salt/KDF cho mật khẩu và xác thực control packet là hardening. Challenge-response, resume, E2E, ETA, ảnh Wireshark không phải yêu cầu nguyên văn bắt buộc.
 
@@ -123,6 +123,8 @@ DOCX ghi “Sunday, November 17, 2026, at 11:59 PM”, nhưng 17/11/2026 là **t
 52 giờ/người trong 8 ngày 09–16/11 tương đương **6,5 giờ/ngày**, chưa tính dự phòng. Cân bằng giờ không có nghĩa độ khó ngang nhau; cập nhật dự toán sau baseline. Nếu chỉ rảnh 4 giờ/ngày thì có khoảng 32 giờ/người, thiếu khoảng 20 giờ: cần điều chỉnh thời lượng/phạm vi cải thiện hoặc trao đổi hạn, không âm thầm bỏ yêu cầu đề.
 
 ## 6. Nghiệm thu theo rubric
+
+**Bắt buộc hoàn thành đủ cả 10 bước.** Không dùng chức năng bổ sung để bù một rubric còn thiếu; mỗi bước cần bằng chứng thực hiện và kiểm tra tương ứng.
 
 | Step (1 điểm/Step) | Chủ trì | Bằng chứng |
 |---|---|---|
