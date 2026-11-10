@@ -1,6 +1,6 @@
 # Đặc tả giao thức  [A+B – Bước 1]
 
-> A1, 09/11/2026: mục 1–4 mô tả code v1 hiện tại; mục 5–8 là hợp đồng thiết kế cho A2–A6, **chưa triển khai**. A đã chọn phương án bàn giao; chưa có xác nhận review từ B. Không dùng mục dự kiến để tuyên bố tính năng đã chạy.
+> A1, 09/11/2026: mục 1–4 mô tả UDP v1 hiện tại; mục 5–7 là hợp đồng thiết kế A3–A6, **chưa triển khai**. A2, 10/11/2026: module TCP bootstrap ở mục 8 đã triển khai/test, chưa được B1 nối vào startup/reconnect thật. Chưa có xác nhận review hợp đồng từ B. Không dùng mục dự kiến để tuyên bố tính năng đã chạy.
 > Audit và bằng chứng: [AUDIT_A.md](AUDIT_A.md), [baseline](evidence/A1-baseline.md). Mọi thay đổi API/wire phải cập nhật tài liệu và test cùng lần tích hợp.
 
 ## 1. Tầng transport (UDP tin cậy) – do A phụ trách
@@ -234,12 +234,18 @@ Dành 128 KiB connection capacity/credit cho DATA stream 0/1: file chỉ sử d�
 
 Scheduler dùng vòng weighted round-robin có con trỏ giữ qua các pump: tối đa 4 DATA control/chat rồi một lượt DATA file nếu file đủ điều kiện. File round-robin; không có chat thì file dùng phần rỗi, không có file thì chat dùng phần rỗi. ACK/credit/control bảo trì có ngân sách/coalescing riêng; retransmit tuân recovery budget. Đo latency và khả năng file tiến triển bằng test, không suy từ tên scheduler.
 
-## 8. TCP bootstrap dự kiến và bàn giao
+## 8. TCP bootstrap A2 — đã có module, chờ B1 tích hợp
 
-API A2: `BootstrapServer(host, tcp_port, udp_port, version)` với `await start()`/`await stop()` và `local_addr`; `await bootstrap_connect(server_addr, *, version, timeout=3.0) -> (host, udp_port)`. B gọi bootstrap trước UDP connect ở startup/reconnect, stop listener khi dừng server.
+API tại `transport/bootstrap.py`: `BootstrapServer(host, tcp_port, udp_port, version=PROTOCOL_VERSION, *, timeout=3.0)` với `await start()`/`await stop()` và `local_addr`; `await bootstrap_connect(server_addr, *, version=PROTOCOL_VERSION, timeout=3.0) -> (peer_ip, udp_port)`. B gọi bootstrap trước UDP connect ở startup/reconnect, stop listener khi dừng server. Hiện PROTOCOL_VERSION=1; chưa bật wire v2.
 
-Framing JSON UTF-8 một dòng, tối đa 4096 byte gồm newline, không giả định một read là một message. Request `{"type":"BOOTSTRAP","version":2}`; response `{"type":"BOOTSTRAP_ACK","version":2,"udp_port":9000}`. Khi A2 chạy trên v1 thì cả hai dùng version=1 hiện hành; đổi đồng bộ với v2. Validate type, integer version (không nhận bool), udp_port 1..65535; timeout connect/read, EOF sớm/JSON lỗi/oversize đều thất bại và đóng writer. TCP ACK ở đây là message ứng dụng, khác ACK của hệ điều hành. Timeout/invalid response raise ConnectionError với reason, không fallback UDP.
+Framing JSON UTF-8 một dòng, tối đa 4096 byte gồm newline, không giả định một read là một message. Request hiện tại `{"type":"BOOTSTRAP","version":1}`; response `{"type":"BOOTSTRAP_ACK","version":1,"udp_port":9000}`. Đổi version đồng bộ với UDP khi triển khai v2. Validate type, integer version (không nhận bool), udp_port 1..65535; timeout connect/read, EOF sớm/JSON lỗi/oversize đều thất bại và đóng writer. TCP ACK ở đây là message ứng dụng, khác ACK của hệ điều hành.
 
-Host UDP là host đã kết nối bootstrap, không tin một host tùy ý từ response. TCP mặc định cùng số cổng UDP 9000. Sau ACK đóng TCP; chat/file tiếp tục UDP. Module bootstrap không tự auth. B phụ trách reconnect và thông báo UI.
+Client raise `BootstrapError(ConnectionError)` với thuộc tính `.reason`: timeout, connection_failed, unexpected_eof, frame_too_large, invalid_frame, invalid_response, version_mismatch. Sai cấu hình local (port/version/timeout) raise ValueError. Timeout 3 giây tính cho toàn bộ connect + request drain + đọc frame; cleanup writer có timeout riêng tối đa 0,5 giây. Task cancellation vẫn propagate CancelledError và đóng writer. Không fallback UDP khi bootstrap thất bại.
+
+Server dùng timeout cho cả nhận request và drain ACK. Request không hợp lệ/sai version/oversize/EOF/timeout bị đóng, không nhận ACK thành công; client có thể thấy unexpected_eof thay vì reason chi tiết của server. Stop idempotent, đóng listener và mọi accepted writer, cancel rồi await handler tasks. Có thể start lại sau stop; start hai lần khi đang chạy raise RuntimeError. `local_addr` chỉ đọc khi chạy; tcp_port=0 hỗ trợ test, udp_port phải là cổng UDP đã bind thật (1..65535).
+
+Host UDP là **IP peer TCP đã kết nối**, không resolve hostname lại hoặc tin một host tùy ý từ response. B dùng cùng số cổng TCP/UDP 9000 trong cấu hình mặc định; constructor nhận tường minh cả hai. Sau ACK đóng TCP; chat/file tiếp tục UDP. Module bootstrap không tự auth. B phụ trách reconnect và thông báo UI.
+
+Test module: `tests/test_bootstrap.py`; có test harness nối TCP → UDP → login → DM bằng app hiện tại, chưa thay đổi lifecycle production. [Bàn giao và kết quả A2](A2-bootstrap.md); [stdout test](evidence/A2-bootstrap-tests.txt). B1 phải nối vào ứng dụng rồi kiểm đường chạy thật trước khi nghiệm thu toàn bộ Step 2.
 
 B cần review các điểm: receipt riêng BEGIN/chunk; chuyển receive sang async handler+consume; relay queue có trần; reset theo chiều gửi; lỗi/stats; auth timeout và bootstrap lifecycle. Đây là hợp đồng bàn giao của A, chưa ghi nhận B đã tích hợp hoặc đồng ý. Thay đổi sau review phải cập nhật hợp đồng và test liên quan.
