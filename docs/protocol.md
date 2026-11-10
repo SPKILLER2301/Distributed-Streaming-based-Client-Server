@@ -1,6 +1,7 @@
 # Đặc tả giao thức  [A+B – Bước 1]
 
-> Hoàn thiện tài liệu này TRƯỚC khi code thêm. Mọi thay đổi header/message phải báo người kia.
+> A1, 09/11/2026: mục 1–4 mô tả code v1 hiện tại; mục 5–8 là hợp đồng thiết kế cho A2–A6, **chưa triển khai**. A đã chọn phương án bàn giao; chưa có xác nhận review từ B. Không dùng mục dự kiến để tuyên bố tính năng đã chạy.
+> Audit và bằng chứng: [AUDIT_A.md](AUDIT_A.md), [baseline](evidence/A1-baseline.md). Mọi thay đổi API/wire phải cập nhật tài liệu và test cùng lần tích hợp.
 
 ## 1. Tầng transport (UDP tin cậy) – do A phụ trách
 
@@ -24,13 +25,13 @@
 ### 1.3 Streams
 - `0` = control (AUTH, danh sách user, tín hiệu file)
 - `1` = chat (MSG_BROADCAST, MSG_PRIVATE)
-- `>=2` = mỗi file một stream riêng → mất gói của file **không** chặn chat (không HoL blocking)
+- `>=2` = mỗi file một stream riêng. Reassembly độc lập nên không có phụ thuộc thứ tự giữa file và chat; cwnd/scheduler vẫn dùng chung, chưa có bằng chứng test HoL vì test còn skip.
 - Mỗi stream có không gian `seq` và cửa sổ riêng; congestion control dùng chung cho cả kết nối.
 
 ### 1.3b Message-oriented
 `send(data)` được cắt thành các gói ≤ `MAX_PAYLOAD`; gói cuối có cờ EOM. Bên nhận ghép lại và giao **nguyên một message**.
 
-### 1.4 Handshake (Bước 2)
+### 1.4 UDP handshake hiện có (chưa đáp ứng TCP bootstrap Step 2)
 ```
 Client                                   Server
   | HELLO(payload = X25519 pub key) -->   |
@@ -40,10 +41,27 @@ Client                                   Server
 ```
 
 ### 1.5 Mã hóa (Bước 8)
-AES-GCM; nonce = stream_id‖seq (không trùng trong cùng 1 khóa/chiều); header là AAD → sửa header bị phát hiện.
+X25519 trao đổi public key 32 byte trong HELLO/HELLO_REPLY. HKDF-SHA256: salt=None, info=`collab-app v1`, output 64 byte, chia thành khóa c2s và s2c, mỗi khóa 32 byte. DATA dùng AES-256-GCM, tag 16 byte.
 
-### 1.6 Sơ đồ trạng thái kết nối  *(TODO(A): vẽ vào `docs/diagrams/state_diagram.png`)*
-`CLOSED → HELLO_SENT → ESTABLISHED → CLOSING → CLOSED` (+ nhánh timeout)
+Nonce chính xác: `uint16_be(stream_id) || uint32_be(seq) || 00 00 00 00 00 00` (12 byte). AAD là toàn bộ header với length bao gồm tag. `_transmit()` hiện mã hóa lại mỗi lần gửi; chưa cache wire bytes. Không được đổi plaintext **hoặc AAD** khi tái dùng cặp khóa/nonce. ACK/PING/PONG/CLOSE hiện không xác thực. Handshake chưa xác thực danh tính, chưa chống MITM chủ động. Mã hóa từng chặng client–server; server đọc plaintext để relay, không phải E2E.
+
+### 1.6 Trạng thái
+
+Code chưa có enum state: Endpoint dùng `_pending`/`connections`; Connection dùng `closed`. Client chờ HELLO_REPLY tối đa 4 lượt, mỗi lượt 1,5 giây. Server tạo Connection khi nhận HELLO hợp lệ; client tạo khi nhận HELLO_REPLY. Chỉ phía server gọi `on_connect`; client lấy conn_id từ kết quả `await connect()`.
+
+`close()` gửi CLOSE best effort rồi đóng ngay, không có pha CLOSING chờ peer ACK. Timeout/retry exhaustion gọi `_finish()`. Endpoint xóa connection và HELLO cache rồi gọi disconnect callback. [Sơ đồ hiện tại và dự kiến](diagrams/transport_a1.md).
+
+### 1.7 Ví dụ encoder v1
+
+`encode(Packet(PKT_PING, conn_id=7))` (không mã hóa):
+
+```text
+01 04 00 0000 00000007 00000000 00000000 00000000 0000
+ver type flags sid conn_id seq ack sack length
+```
+
+Chuỗi liền: `0104000000000000070000000000000000000000000000` (23 byte).
+Đây là PING v1; control v2 bên dưới có counter/tag nên không dùng cùng ví dụ bytes.
 
 ## 2. Tầng ứng dụng (JSON trong payload) – do B phụ trách
 
@@ -68,4 +86,160 @@ AES-GCM; nonce = stream_id‖seq (không trùng trong cùng 1 khóa/chiều); he
 4. B nhận đủ `size` byte → kiểm SHA-256 → gửi `FILE_DONE{ok}`.
 
 ## 3. Điều khiển luồng / tắc nghẽn / gửi lại
-*(TODO(A): mô tả cửa sổ, công thức RTO, AIMD/CUBIC đã chọn, quy tắc gửi lại.)*
+
+### 3.1 Hành vi hiện tại
+
+- Datagram mục tiêu 1200 byte; DATA plaintext tối đa `1200 - 23 - 16 = 1161` byte. Một message rỗng vẫn tạo một DATA EOM. File chunk hiện là 8192 byte/message.
+- Mỗi chiều, mỗi stream có sequence riêng từ 0. Reorder nhận `[expected, expected+64)`; ACK là `expected`; bit SACK i xác nhận `expected+1+i`, chỉ phủ 32 vị trí. Các packet xa hơn vẫn được giữ nếu trong cửa sổ 64 nhưng chưa SACK được. Duplicate không giao lại; vẫn phát ACK.
+- Sender chưa giới hạn khoảng cách sequence mới với ACK tích lũy: đếm inflight không thay thế cửa sổ sequence khi SACK đã giải phóng các packet phía sau lỗ hổng. A3 phải giữ cả hai giới hạn.
+- cwnd/ssthresh/inflight tính bằng packet trên toàn connection; cwnd khởi đầu 10, trần 64. AIMD tăng +1 mỗi ACK trong slow start, sau đó +1/cwnd; timeout đưa cwnd về 1, ssthresh=max(cwnd_cũ/2,2). `on_loss()` có nhưng chưa được fast retransmit gọi.
+- RTT chỉ đo packet có retries=0. Mẫu đầu: SRTT=R, RTTVAR=R/2. Sau đó RTTVAR=0,75*RTTVAR+0,25*abs(SRTT_cũ-R); SRTT=0,875*SRTT+0,125*R. RTO=clamp(SRTT+4*RTTVAR, 0,2s, 5s), ban đầu 0,5s. Đây là cấu hình dự án, không tuyên bố tuân thủ toàn bộ RFC.
+- Tick 0,02s; packet quá RTO được retransmit. Một tick có timeout nhân đôi RTO chung một lần và gọi on_timeout một lần, nhưng gửi tất cả packet quá hạn trước khi giảm cửa sổ. Tối đa 10 lần gửi lại/packet, lần timeout tiếp theo đóng.
+- PING sau 2s không gửi; peer timeout sau 10s không nhận. Hiện last_recv cập nhật cả trước xác thực DATA và với type chưa biết: cần sửa A6.
+- Không có receive credit/backpressure; ACK transport không chứng minh app đã xử lý. Callback lỗi sau ACK có thể làm app mất message. Không có bảo đảm exactly-once qua reconnect.
+
+### 3.2 Đơn vị thống nhất
+
+| Đại lượng | Đơn vị |
+|---|---|
+| cwnd, ssthresh, inflight, retry budget, sequence window | packet DATA |
+| pending, unacked payload, receive buffers, credit, ACK progress | byte plaintext payload; không gồm header/tag |
+| wire cache | byte datagram, đo riêng để kiểm RAM |
+| RTT/RTO/elapsed | giây, monotonic; không dùng wall clock |
+| seq/ack | chỉ số packet trong một chiều của stream |
+
+## 4. API Endpoint hiện có (v1)
+
+```python
+Endpoint(is_server: bool = False)
+set_handlers(on_connect=None, on_receive=None, on_disconnect=None) -> None
+await start(local_addr=("0.0.0.0", 0)) -> None
+await connect(remote_addr) -> int  # chỉ UDP, một handshake pending/Endpoint
+open_stream(conn_id: int) -> int
+send(conn_id: int, stream_id: int, data: bytes) -> bool
+close(conn_id: int) -> None
+await stop() -> None
+```
+
+Callbacks đều **sync**: `on_connect(conn_id, addr)`, `on_receive(conn_id, stream_id, data)`, `on_disconnect(conn_id, reason)`. Không truyền coroutine vào callback này. `send=True` nghĩa đã enqueue, chưa ACK; False khi connection không tồn tại/đã đóng. `open_stream` với conn_id không tồn tại hiện có thể raise KeyError. `local_addr` chỉ đọc sau start.
+
+`stop()` hiện cancel tick nhưng không await kết thúc task, chưa đánh thức/cancel handshake future. Các reason hiện có là chuỗi `closed locally`, `closed by peer`, `timeout`, `too many retries`. Stats nội bộ chỉ có sent/retransmitted. App hiện còn đọc `endpoint.connections[conn_id].remote_addr`; API v2 phải có accessor thay thế.
+
+## 5. Hợp đồng Endpoint dự kiến (A5/A6; chưa có trong code)
+
+### 5.1 Gửi, ACK và ownership
+
+```python
+await ep.send_message(conn_id, stream_id, data: bytes) -> SendReceipt
+await receipt.wait_acked() -> None
+receipt.message_id: int
+receipt.payload_bytes: int
+receipt.acked_bytes: int
+ep.get_stats(conn_id) -> TransportStats
+ep.get_peer_addr(conn_id) -> tuple[str, int]
+```
+
+- Chấp nhận nguyên một message vào queue giới hạn. Return khi enqueue thành công, không chờ ACK; không enqueue một nửa message. FIFO theo thứ tự chấp nhận trong stream. Một producer/stream là cách dùng khuyến nghị.
+- Kiểm kích thước trước khi chờ. Chờ khi ngân sách pending+unacked hoặc số message đầy; receipt ACK tăng khi từng packet được ACK mới, tối đa payload_bytes. Duplicate ACK/retransmit không tăng tiến độ.
+- `bytes` bất biến do transport giữ tham chiếu hoặc copy có tính vào ngân sách. Trong lúc chờ, caller giữ data; B phải giới hạn số producer/task đang gọi, không tạo task cho toàn bộ file.
+- Cancellation trước enqueue không gửi byte nào. Sau khi return, hủy task chờ ACK không thu hồi DATA; muốn bỏ stream gọi cancel_stream. Không có await giữa commit enqueue và return để tránh trạng thái commit không rõ.
+- FILE_BEGIN và từng chunk có receipt riêng. B chỉ cộng receipt của chunk cho tiến độ file, không cộng JSON BEGIN/header/tag. ACK chặng client→server chưa phải người nhận cuối DONE.
+- Hàm `send()` cũ được giữ như try-enqueue có trần: False khi đầy/đóng, không silently drop sau khi trả True. B phải chuyển các nơi cần delivery sang API async và xử lý lỗi; không tiếp tục bỏ qua False.
+
+### 5.2 Nhận và trả credit
+
+Chọn consumer async **theo stream**, thay vì tự gọi callback async mà không await:
+
+```python
+ep.set_message_handler(handler) -> None
+async def handler(message: ReceivedMessage) -> None: ...
+# message.conn_id, message.stream_id, message.data, message.delivery_id
+ep.consume(message) -> None
+```
+
+- Mode mới loại trừ `on_receive` cũ, chọn trước start. A5 cung cấp dispatcher với queue byte/message có trần. Một handler đang chạy/stream; các stream khác được chạy độc lập. Control vẫn FIFO trong stream 0, chat FIFO trong stream 1.
+- Receipt nhận chỉ tạo sau reassembly EOM; transport giữ credit cho fragments, reorder, queue và message đang được xử lý. ACK chỉ sau khi dữ liệu được giữ trong ngân sách đã cấp, không ACK rồi bỏ vì queue đầy.
+- B gọi consume sau ghi/xử lý xong, hoặc sau `await send_message()` sang chặng relay kế tiếp đã nhận ownership trong queue có trần. Không cần chờ ACK chặng sau mới consume. Xóa tham chiếu app sau consume; giữ bản copy riêng phải nằm trong ngân sách app.
+- Consume idempotent theo delivery_id, không tăng credit hai lần; token thuộc connection khác bị từ chối. Token đã dọn do cancel/close trở thành no-op. Handler return mà chưa consume giữ credit; transport không tự cấp thêm. Handler lỗi reset file stream hoặc đóng connection nếu là control/chat.
+- Mode callback sync cũ chỉ dùng khi callback xử lý xong dữ liệu trước return; không dùng cho relay async. B1/B3 chuyển sang mode mới để hưởng backpressure toàn tuyến.
+
+### 5.3 Đóng, hủy và lỗi
+
+```python
+await ep.cancel_stream(conn_id, stream_id, reason="cancelled") -> None
+ep.close(conn_id, reason="closed_local") -> None
+await ep.stop() -> None
+```
+
+Stream identity là `(conn_id, sender_role, stream_id)` vì mỗi chiều có sequence riêng. cancel_stream nhắm chiều **gửi cục bộ**, chỉ dành sid>=2. Chấm dứt stream đó, bỏ pending/unacked/cache, đánh thức mọi waiter với StreamCancelled. Receiver yêu cầu dừng truyền qua message FILE_ERROR của B; không vô tình hủy stream cùng số ở chiều ngược lại.
+
+Reset gửi tin cậy theo mục 6; giữ tombstone để DATA tới muộn không tái tạo stream. Không tái sử dụng stream ID dưới cùng khóa. Close idempotent; mọi send/ACK waiter nhận ConnectionClosed, consumer/task/future được dọn. Stop cancel rồi await background tasks, đóng socket và handshake đang chờ; ứng dụng B dọn file/task của mình.
+
+Lỗi API mới: `MessageTooLarge(ValueError)`, `StreamLimitError(RuntimeError)`, `StreamCancelled(ConnectionError)`, `ConnectionClosed(ConnectionError)`, `TransportProtocolError(ConnectionError)`. Reason ổn định: closed_local, closed_peer, peer_timeout, retry_exhausted, protocol_error, resource_limit, endpoint_stopped. Không đưa raw exception text thành mã UI.
+
+TransportStats là snapshot, không lộ mutable Connection: state, reason, algorithm, srtt_seconds (None nếu chưa đo), rto_seconds, cwnd_packets, inflight_packets, pending_bytes, unacked_bytes, wire_cache_bytes, recv_buffered_bytes, acked_payload_bytes, retransmitted_packets, timeout_count; có breakdown per-stream. ACK bytes là payload transport; B ánh xạ receipt để loại metadata file.
+
+## 6. Wire/security dự kiến v2 (quyết định A1, triển khai A5/A6)
+
+### 6.1 Version và nonce
+
+Giữ header 23 byte và sequence per-stream; tăng PROTOCOL_VERSION lên **2 khi triển khai**. V1/v2 không fallback im lặng. Bootstrap trả version tương ứng. HELLO/HELLO_REPLY vẫn trao đổi public key 32 byte; HKDF info mới `collab-app v2` phân tách khóa với v1, vẫn chia c2s/s2c. A1 không sửa constants đang chạy.
+
+- DATA nonce v2: `00 || uint16_be(sid) || uint32_be(seq) || 5 zero bytes`.
+- Control nonce v2: `01 || uint64_be(counter) || 3 zero bytes`.
+- Khóa riêng mỗi chiều; counter tăng từ 0 trên toàn chiều gửi connection, không riêng từng type. Không wrap. Mỗi DATA tạo bản mã đúng một lần với AAD/header bất biến, cache nguyên datagram để retransmit.
+- Control đã thiết lập phiên gồm ACK/PING/PONG/CLOSE và type mới CREDIT=7, CREDIT_PROBE=8, RESET_STREAM=9, RESET_ACK=10. Payload wire: `counter_u64_be || AESGCM(body)`; AAD=`header || counter`; length bao gồm 8-byte counter, body và tag 16 byte. Counter plaintext nhưng được xác thực. Payload DATA tối đa vẫn 1161; control body tối đa 1153 byte.
+- Mỗi lần gửi control, kể cả nhắc lại credit/reset, dùng counter mới. Receiver giữ replay bitmap 256 counter; xác thực tag trước cập nhật replay/liveness. Counter cũ ngoài cửa sổ hoặc đã thấy bị loại; control hợp lệ bị reorder trong cửa sổ được chấp nhận. Không ghi nhận counter từ gói tag sai.
+- DATA duplicate hợp lệ không giao app lại nhưng ACK bằng counter control mới. Nhờ vậy mất ACK vẫn phục hồi. HELLO chưa xác thực không được dùng cập nhật liveness của connection đang thiết lập.
+
+### 6.2 Body control và credit
+
+Tất cả số nguyên big-endian; body phải đúng độ dài. ACK dùng sid/ack/sack của header, body rỗng. PING/PONG body rỗng; CLOSE body reason_code u8 (0 normal, 1 timeout, 2 retry, 3 protocol, 4 resource, 5 stop). Các field header không dùng phải bằng 0; flags control=0.
+
+CREDIT dùng header.sid chỉ stream chiều ngược lại mà peer đang gửi; body `stream_limit_u64 || conn_limit_u64 || file_conn_limit_u64` (24 byte). Đây là tổng byte **được phép gửi kể từ đầu phiên**, không phải số byte cộng thêm. Receiver cấp ban đầu theo mục 7 và gửi cập nhật sau consume; sender lấy max của limit hợp lệ, không cộng lại. Retransmit không chiếm credit mới. Giữ tổng sent/consumed theo chiều connection, kể cả stream đã đóng; không làm giảm các bộ đếm tích lũy khi dọn stream. File phải thỏa thêm file_conn_limit; nhờ vậy reserve control/chat có thể kiểm tra từ wire, không phụ thuộc state bí mật của peer.
+
+CREDIT_PROBE dùng sid, body rỗng; peer đáp bằng CREDIT mới nhất. Khi chờ credit gửi probe sau RTO, backoff tới 5s, một probe outstanding/stream; limit update cũ/trùng không tăng credit. Receiver chỉ tăng limit tương ứng byte đã consume; giới hạn slot/message cũng phải giữ chỗ (mục 7).
+
+RESET_STREAM/RESET_ACK: sid ở header, body `final_bytes_u64 || reason_u8`, với final_bytes là tổng DATA plaintext duy nhất đã thực sự phát trên stream đó (không tính pending chưa gửi). Người gửi reset retransmit semantic request với counter mới, theo RTO/MAX_RETRIES; peer xác nhận cùng final_bytes. Receiver kiểm final_bytes không nhỏ hơn dữ liệu đã nhận, không vượt stream limit đã cấp và phần ngân sách connection còn hợp lệ; ghi nhận bytes bị bỏ như đã consume đúng một lần để trả connection credit, không cấp thêm cho stream đã reset. RESET_ACK lặp không thay counters. Hết retry đóng connection để tránh trạng thái treo không rõ. Tombstone giữ cuối cùng và xử lý reset trùng; không khôi phục DATA đến muộn.
+
+### 6.3 Validation và recovery
+
+- Decode kiểm version, type, flags, độ dài, MAX_DATAGRAM, sid và field theo type; DATA tag hợp lệ rồi mới thay đổi state. ACK xác thực vẫn phải kiểm không xác nhận sequence chưa từng phát; malformed ACK không giải phóng buffer hay tăng cwnd.
+- DATA seq tối đa `2^32-2`, để ACK kế tiếp `2^32-1` còn biểu diễn được. Dừng/tạo phiên mới trước khi dùng hết seq/stream/counter; không wrap và không reuse nonce. Stream ID 2..65535, thêm trần tài nguyên mục 7.
+- Sender giữ cửa sổ sequence 64 tính từ cumulative ACK, ngoài cwnd và credit. Bitmap SACK 32 giữ nguyên; packet xa hơn có thể cần chờ ACK tích lũy hoặc timeout.
+- A3 dùng 3 sequence phía sau được ACK/SACK mới làm bằng chứng fast retransmit; cùng một ACK lặp không tăng bằng chứng. RTO xử lý tail loss và loss retransmit; không lấy RTT từ retransmit.
+- Recovery boundary là snapshot highest-sent theo từng stream tại lúc vào recovery (không so seq của hai stream với nhau). Một đợt chỉ giảm cwnd một lần; kết thúc khi toàn bộ packet trong snapshot đã ACK hoặc stream reset. Retransmit có ngân sách riêng bảo đảm ít nhất một packet phục hồi dù inflight>=cwnd. Timeout/backoff có trần, không nhân RTO theo số packet trong batch.
+- A4 triển khai CUBIC với clock monotonic inject được; giữ AIMD làm baseline. Chi tiết công thức/tham số và nguồn đặc tả được bổ sung cùng A4; A1 không tuyên bố đã có thuật toán CUBIC.
+
+## 7. Giới hạn và scheduling dự kiến
+
+Giá trị khởi đầu để triển khai/test, không phải số đo RAM hay yêu cầu rubric. MiB=1048576 byte, KiB=1024 byte. Thay đổi phải cập nhật spec/test, không nới riêng một phía. V2 dùng cùng profile cố định, chưa thương lượng profile.
+
+| Tài nguyên | Trần dự kiến |
+|---|---|
+| Connection/Endpoint server | 64 tổng, gồm chưa auth; B đặt auth timeout 10s |
+| Stream mỗi chiều/connection | 32 active (gồm control/chat), 1024 ID từng dùng kể cả tombstone; hết thì phiên mới |
+| Message control/chat | 64 KiB |
+| Message file (gồm BEGIN/chunk) | 16 KiB; chunk B hiện 8192 byte |
+| Pending + unacked payload | 256 KiB/stream, 2 MiB/connection |
+| Receive credit ban đầu | 256 KiB/stream, 2 MiB/connection |
+| Số message pending hoặc nhận chưa consume | 1024/stream, 4096/connection |
+| Reorder | 64 packet/stream; nằm trong receive byte budget |
+| Wire cache | chỉ packet unacked; accounting riêng, không giữ lịch sử ACK |
+| ACK/control không phải DATA | không bị data credit chặn; coalesce ACK/credit theo stream, không queue vô hạn |
+
+Message cap nhỏ hơn receive window ban đầu để receiver không chờ EOM mãi trong khi sender chờ credit. Empty message tính 0 payload byte nhưng vẫn chiếm message slot/packet; khi vượt slot đã dành thì không ACK dữ liệu không thể giữ. Có thể hồi phục bằng retransmit sau consume. Test flood message rỗng riêng; giới hạn byte không đủ bảo vệ metadata.
+
+Dành 128 KiB connection capacity/credit cho DATA stream 0/1: file chỉ sử dụng 2 MiB-128 KiB chưa consume tại một thời điểm. `conn_limit = 2 MiB + total_consumed`; `file_conn_limit = (2 MiB-128 KiB) + file_consumed`; `stream_limit = 256 KiB + stream_consumed`. Sender kiểm cumulative unique bytes mới của stream, connection và file class trước khi phát. Theo dõi riêng control/chat/file usage khi cấp limit để stream file không chiếm reserve. Phần cấp trước chưa dùng cũng là nghĩa vụ giữ chỗ; tổng grant connection phải được bảo đảm, không chỉ nhìn bytes đã tới. Mỗi chiều theo dõi ledger của từng stream và tổng connection; bộ nhớ toàn endpoint bị chặn thêm bởi trần 64 connection.
+
+Scheduler dùng vòng weighted round-robin có con trỏ giữ qua các pump: tối đa 4 DATA control/chat rồi một lượt DATA file nếu file đủ điều kiện. File round-robin; không có chat thì file dùng phần rỗi, không có file thì chat dùng phần rỗi. ACK/credit/control bảo trì có ngân sách/coalescing riêng; retransmit tuân recovery budget. Đo latency và khả năng file tiến triển bằng test, không suy từ tên scheduler.
+
+## 8. TCP bootstrap dự kiến và bàn giao
+
+API A2: `BootstrapServer(host, tcp_port, udp_port, version)` với `await start()`/`await stop()` và `local_addr`; `await bootstrap_connect(server_addr, *, version, timeout=3.0) -> (host, udp_port)`. B gọi bootstrap trước UDP connect ở startup/reconnect, stop listener khi dừng server.
+
+Framing JSON UTF-8 một dòng, tối đa 4096 byte gồm newline, không giả định một read là một message. Request `{"type":"BOOTSTRAP","version":2}`; response `{"type":"BOOTSTRAP_ACK","version":2,"udp_port":9000}`. Khi A2 chạy trên v1 thì cả hai dùng version=1 hiện hành; đổi đồng bộ với v2. Validate type, integer version (không nhận bool), udp_port 1..65535; timeout connect/read, EOF sớm/JSON lỗi/oversize đều thất bại và đóng writer. TCP ACK ở đây là message ứng dụng, khác ACK của hệ điều hành. Timeout/invalid response raise ConnectionError với reason, không fallback UDP.
+
+Host UDP là host đã kết nối bootstrap, không tin một host tùy ý từ response. TCP mặc định cùng số cổng UDP 9000. Sau ACK đóng TCP; chat/file tiếp tục UDP. Module bootstrap không tự auth. B phụ trách reconnect và thông báo UI.
+
+B cần review các điểm: receipt riêng BEGIN/chunk; chuyển receive sang async handler+consume; relay queue có trần; reset theo chiều gửi; lỗi/stats; auth timeout và bootstrap lifecycle. Đây là hợp đồng bàn giao của A, chưa ghi nhận B đã tích hợp hoặc đồng ý. Thay đổi sau review phải cập nhật hợp đồng và test liên quan.
