@@ -1,19 +1,5 @@
-"""
-Chia chunk, SHA-256, ghép file.                           [Người phụ trách: A]  (Bước 6)
+"""File chunks, exclusive output creation and SHA-256 verification. Owner: B."""
 
-Module thuần (không biết mạng) nên test được riêng (tests/test_file_transfer.py).
-
-  FileSender   : đọc file, tính SHA-256, sinh ra các chunk FILE_CHUNK_SIZE byte.
-  FileReceiver : ghi chunk xuống đĩa, đếm byte, kiểm SHA-256 khi đủ.
-
-Việc đảm bảo "không hỏng dữ liệu" gồm 2 lớp: AES-GCM + ACK/gửi lại ở transport (từng gói),
-và SHA-256 toàn file ở đây (phát hiện lỗi ghép/ghi).
-
-TODO(A): (1) tiến trình gửi hiện đếm theo chunk ĐÃ ĐẨY VÀO transport, chưa phải đã được ACK
-             -> nếu muốn chính xác, thêm callback "đã ACK" từ transport lên.
-         (2) Gửi file lớn: đừng đẩy toàn bộ chunk vào transport một lúc (tốn RAM).
-             Gợi ý: gửi theo lô ~64 chunk rồi `await asyncio.sleep(0.01)` / chờ hàng đợi vơi bớt.
-"""
 from __future__ import annotations
 
 import hashlib
@@ -31,9 +17,9 @@ class FileSender:
         self.name = os.path.basename(path)
         self.size = os.path.getsize(path)
         self.chunk_size = chunk_size
-        self.file_id = uuid.uuid4().hex[:8]
+        self.file_id = uuid.uuid4().hex
         self.sha256 = self._hash()
-        self.sent = 0                                   # byte đã đẩy vào transport
+        self.sent = 0  # byte đã đẩy vào transport
 
     def _hash(self) -> str:
         h = hashlib.sha256()
@@ -53,13 +39,26 @@ class FileSender:
 
 
 class FileReceiver:
-    def __init__(self, file_id: str, name: str, size: int, sha256: str, dest_dir: str) -> None:
+    def __init__(
+        self, file_id: str, name: str, size: int, sha256: str, dest_dir: str
+    ) -> None:
+        if type(size) is not int or size < 0:
+            raise ValueError("invalid file size")
         self.file_id, self.size, self.expected_sha = file_id, size, sha256
         Path(dest_dir).mkdir(parents=True, exist_ok=True)
-        self.path = self._unique_path(dest_dir, os.path.basename(name) or "file")   # chặn ../ trong tên
+        self.path = self._unique_path(
+            dest_dir, os.path.basename(name.replace("\\", "/")) or "file"
+        )  # chặn ../ trong tên
         self.received = 0
         self._hash = hashlib.sha256()
-        self._fh = open(self.path, "wb")
+        while True:
+            try:
+                self._fh = open(self.path, "xb")
+                break
+            except FileExistsError:
+                self.path = self._unique_path(
+                    dest_dir, os.path.basename(name.replace("\\", "/")) or "file"
+                )
 
     @staticmethod
     def _unique_path(dest_dir: str, name: str) -> str:
@@ -72,6 +71,9 @@ class FileReceiver:
 
     def write(self, chunk: bytes) -> bool:
         """Ghi 1 chunk. Trả True khi đã nhận đủ `size` byte."""
+        if self.received + len(chunk) > self.size:
+            self.abort()
+            raise ValueError("file exceeds offered size")
         self._fh.write(chunk)
         self._hash.update(chunk)
         self.received += len(chunk)

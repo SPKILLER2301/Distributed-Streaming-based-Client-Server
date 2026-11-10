@@ -8,6 +8,8 @@
 </head>
 <body>
   <!-- [B – Bước 9] Khung giao diện. Mọi logic nằm trong app.js (chỉ JavaScript phía client). -->
+  <p id="uiNet">HTTP/SSE: đang kết nối</p>
+  <p id="stats"></p>
   <section id="login">
     <h2>Đăng nhập</h2>
     <input id="username" placeholder="Tên đăng nhập" value="alice">
@@ -18,7 +20,7 @@
 
   <section id="app" hidden>
     <header>
-      <b id="me"></b>
+      <b id="me"></b><button id="logoutBtn">Đăng xuất</button>
       <span id="net">● đang kết nối</span>
     </header>
     <div class="cols">
