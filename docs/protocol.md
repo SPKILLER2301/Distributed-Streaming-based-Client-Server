@@ -1,6 +1,6 @@
 # Đặc tả giao thức  [A+B – Bước 1]
 
-> A1, 09/11/2026: mục 1–4 mô tả UDP v1 hiện tại; mục 5–7 là hợp đồng thiết kế A3–A6, **chưa triển khai**. A2, 10/11/2026: module TCP bootstrap ở mục 8 đã triển khai/test, chưa được B1 nối vào startup/reconnect thật. Chưa có xác nhận review hợp đồng từ B. Không dùng mục dự kiến để tuyên bố tính năng đã chạy.
+> A1 thiết kế; cập nhật A3 ngày 10/11/2026: mục 1–4 mô tả UDP v1 hiện tại, đã có reliability A3. Mục 5–7 là hợp đồng A4–A6; các phần chưa triển khai vẫn được ghi rõ. Module bootstrap A2 ở mục 8 đã có/test, chờ B1 nối startup/reconnect thật. Chưa có xác nhận review hợp đồng từ B.
 > Audit và bằng chứng: [AUDIT_A.md](AUDIT_A.md), [baseline](evidence/A1-baseline.md). Mọi thay đổi API/wire phải cập nhật tài liệu và test cùng lần tích hợp.
 
 ## 1. Tầng transport (UDP tin cậy) – do A phụ trách
@@ -43,7 +43,7 @@ Client                                   Server
 ### 1.5 Mã hóa (Bước 8)
 X25519 trao đổi public key 32 byte trong HELLO/HELLO_REPLY. HKDF-SHA256: salt=None, info=`collab-app v1`, output 64 byte, chia thành khóa c2s và s2c, mỗi khóa 32 byte. DATA dùng AES-256-GCM, tag 16 byte.
 
-Nonce chính xác: `uint16_be(stream_id) || uint32_be(seq) || 00 00 00 00 00 00` (12 byte). AAD là toàn bộ header với length bao gồm tag. `_transmit()` hiện mã hóa lại mỗi lần gửi; chưa cache wire bytes. Không được đổi plaintext **hoặc AAD** khi tái dùng cặp khóa/nonce. ACK/PING/PONG/CLOSE hiện không xác thực. Handshake chưa xác thực danh tính, chưa chống MITM chủ động. Mã hóa từng chặng client–server; server đọc plaintext để relay, không phải E2E.
+Nonce chính xác: `uint16_be(stream_id) || uint32_be(seq) || 00 00 00 00 00 00` (12 byte). AAD là toàn bộ header với length bao gồm tag. Từ A3, DATA mã hóa đúng một lần lúc phát mới, giữ nguyên datagram trong InFlight.wire_data và retransmit bytes đó. Cache được bỏ cùng packet khi ACK hoặc connection đóng. Không được đổi plaintext **hoặc AAD** khi tái dùng cặp khóa/nonce. ACK/PING/PONG/CLOSE hiện không xác thực. Handshake chưa xác thực danh tính, chưa chống MITM chủ động. Mã hóa từng chặng client–server; server đọc plaintext để relay, không phải E2E.
 
 ### 1.6 Trạng thái
 
@@ -91,10 +91,14 @@ Chuỗi liền: `0104000000000000070000000000000000000000000000` (23 byte).
 
 - Datagram mục tiêu 1200 byte; DATA plaintext tối đa `1200 - 23 - 16 = 1161` byte. Một message rỗng vẫn tạo một DATA EOM. File chunk hiện là 8192 byte/message.
 - Mỗi chiều, mỗi stream có sequence riêng từ 0. Reorder nhận `[expected, expected+64)`; ACK là `expected`; bit SACK i xác nhận `expected+1+i`, chỉ phủ 32 vị trí. Các packet xa hơn vẫn được giữ nếu trong cửa sổ 64 nhưng chưa SACK được. Duplicate không giao lại; vẫn phát ACK.
-- Sender chưa giới hạn khoảng cách sequence mới với ACK tích lũy: đếm inflight không thay thế cửa sổ sequence khi SACK đã giải phóng các packet phía sau lỗ hổng. A3 phải giữ cả hai giới hạn.
-- cwnd/ssthresh/inflight tính bằng packet trên toàn connection; cwnd khởi đầu 10, trần 64. AIMD tăng +1 mỗi ACK trong slow start, sau đó +1/cwnd; timeout đưa cwnd về 1, ssthresh=max(cwnd_cũ/2,2). `on_loss()` có nhưng chưa được fast retransmit gọi.
+- Sender A3 chỉ phát mới khi inflight<cwnd và seq<cumulative_ack+64. SACK giải phóng inflight không cho phép vượt cửa sổ sequence. ACK/SACK được kiểm toàn bộ trước mutation: ack không vượt highest_sent+1; mọi SACK phải trỏ packet đã phát. ACK sai bị bỏ và tăng invalid_acks. ACK cũ hợp lệ có thể xác nhận thêm SACK nhưng không làm cumulative_ack lùi.
+- cwnd/ssthresh/inflight tính bằng packet trên toàn connection; cwnd khởi đầu 10, trần 64. AIMD tăng +1 mỗi ACK mới trong slow start, sau đó +1/cwnd. Fast loss đặt ssthresh=cwnd=max(cwnd_cũ/2,2); timeout đặt ssthresh=max(cwnd_cũ/2,2), cwnd=1. CUBIC chưa có (A4).
 - RTT chỉ đo packet có retries=0. Mẫu đầu: SRTT=R, RTTVAR=R/2. Sau đó RTTVAR=0,75*RTTVAR+0,25*abs(SRTT_cũ-R); SRTT=0,875*SRTT+0,125*R. RTO=clamp(SRTT+4*RTTVAR, 0,2s, 5s), ban đầu 0,5s. Đây là cấu hình dự án, không tuyên bố tuân thủ toàn bộ RFC.
-- Tick 0,02s; packet quá RTO được retransmit. Một tick có timeout nhân đôi RTO chung một lần và gọi on_timeout một lần, nhưng gửi tất cả packet quá hạn trước khi giảm cửa sổ. Tối đa 10 lần gửi lại/packet, lần timeout tiếp theo đóng.
+- Fast retransmit A3: mỗi packet thiếu đếm tối đa 3 sequence khác nhau lớn hơn nó vừa được ACK. Mỗi sequence chỉ rời unacked một lần nên ACK lặp không thêm bằng chứng. Đủ 3 thì queue packet thiếu; fast retransmit tối đa một lần/packet. Nếu bản gửi lại tiếp tục mất thì phục hồi bằng RTO.
+- Khi phát mới, packet snapshot RTO nền làm retry_interval và deadline=sent_at+retry_interval. Tick 0,02s kiểm now>=deadline. Khi thực sự retransmit do timeout: retry_interval=min(2*retry_interval,5s), deadline=now+retry_interval. Fast retransmit chỉ đặt lại deadline, không nhân interval. Không gọi RttEstimator.backoff(): RTT sample mới không đổi deadline các packet đang bay, không nhân backoff theo cả packet lẫn connection.
+- Retransmit queue FIFO theo (stream_id,seq), không có entry trùng; timeout có thể nâng lý do fast đang chờ thành timeout. Một packet retransmit tối đa mỗi TICK_INTERVAL=0,02s trên connection, chung cho cả fast/timeout. ACK có thể kích hoạt slot ngay nếu đã đến hạn; không bù nhiều slot khi tick trễ. Gửi mới vẫn tuân cwnd; retransmit được phép tiến triển khi inflight>=cwnd sau giảm cửa sổ. Đây là ngân sách recovery của dự án, chưa phải pacing toàn bộ DATA hoặc bảo đảm công bằng (A5).
+- Recovery epoch snapshot highest_sent riêng mỗi stream có unacked, không so seq giữa stream. Chỉ giảm vì fast loss một lần khi vào epoch; có thể chuyển sang timeout và giảm theo timeout một lần trong epoch đó. ACK trong lúc recovery không tăng cwnd; kết thúc khi không còn unacked thuộc snapshot, không chờ DATA mới gửi sau snapshot. ACK loại cả entry retransmit đang chờ.
+- MAX_RETRIES=10 tính chung fast+timeout/packet; lần hết deadline sau 10 lần gửi lại đóng với reason `too many retries`. Peer timeout có thể xảy ra trước. Close/timeout dọn pending, unacked, wire cache, receive buffers và retransmit queue; callback disconnect một lần. DATA chỉ dùng seq 0..2^32-2; enqueue vượt giới hạn đóng với reason `sequence exhausted`, không wrap.
 - PING sau 2s không gửi; peer timeout sau 10s không nhận. Hiện last_recv cập nhật cả trước xác thực DATA và với type chưa biết: cần sửa A6.
 - Không có receive credit/backpressure; ACK transport không chứng minh app đã xử lý. Callback lỗi sau ACK có thể làm app mất message. Không có bảo đảm exactly-once qua reconnect.
 
@@ -123,7 +127,7 @@ await stop() -> None
 
 Callbacks đều **sync**: `on_connect(conn_id, addr)`, `on_receive(conn_id, stream_id, data)`, `on_disconnect(conn_id, reason)`. Không truyền coroutine vào callback này. `send=True` nghĩa đã enqueue, chưa ACK; False khi connection không tồn tại/đã đóng. `open_stream` với conn_id không tồn tại hiện có thể raise KeyError. `local_addr` chỉ đọc sau start.
 
-`stop()` hiện cancel tick nhưng không await kết thúc task, chưa đánh thức/cancel handshake future. Các reason hiện có là chuỗi `closed locally`, `closed by peer`, `timeout`, `too many retries`. Stats nội bộ chỉ có sent/retransmitted. App hiện còn đọc `endpoint.connections[conn_id].remote_addr`; API v2 phải có accessor thay thế.
+`stop()` hiện cancel tick nhưng không await kết thúc task, chưa đánh thức/cancel handshake future. Các reason hiện có là chuỗi `closed locally`, `closed by peer`, `timeout`, `too many retries`, `sequence exhausted`. Stats nội bộ A3 gồm sent, retransmitted, sent_payload_bytes, acked_packets, acked_payload_bytes, fast_retransmitted, timeout_retransmitted, timeout_count, invalid_acks, recovery_epochs, loss_reductions, timeout_reductions. timeout_count đếm các tick có packet timeout mới đưa vào queue, không phải số lần packet phát lại. ACK byte chỉ đếm plaintext mới một lần. Stats công khai/receipt per-message vẫn thuộc A5. App hiện còn đọc `endpoint.connections[conn_id].remote_addr`; API v2 phải có accessor thay thế.
 
 ## 5. Hợp đồng Endpoint dự kiến (A5/A6; chưa có trong code)
 
@@ -207,8 +211,8 @@ RESET_STREAM/RESET_ACK: sid ở header, body `final_bytes_u64 || reason_u8`, v�
 - Decode kiểm version, type, flags, độ dài, MAX_DATAGRAM, sid và field theo type; DATA tag hợp lệ rồi mới thay đổi state. ACK xác thực vẫn phải kiểm không xác nhận sequence chưa từng phát; malformed ACK không giải phóng buffer hay tăng cwnd.
 - DATA seq tối đa `2^32-2`, để ACK kế tiếp `2^32-1` còn biểu diễn được. Dừng/tạo phiên mới trước khi dùng hết seq/stream/counter; không wrap và không reuse nonce. Stream ID 2..65535, thêm trần tài nguyên mục 7.
 - Sender giữ cửa sổ sequence 64 tính từ cumulative ACK, ngoài cwnd và credit. Bitmap SACK 32 giữ nguyên; packet xa hơn có thể cần chờ ACK tích lũy hoặc timeout.
-- A3 dùng 3 sequence phía sau được ACK/SACK mới làm bằng chứng fast retransmit; cùng một ACK lặp không tăng bằng chứng. RTO xử lý tail loss và loss retransmit; không lấy RTT từ retransmit.
-- Recovery boundary là snapshot highest-sent theo từng stream tại lúc vào recovery (không so seq của hai stream với nhau). Một đợt chỉ giảm cwnd một lần; kết thúc khi toàn bộ packet trong snapshot đã ACK hoặc stream reset. Retransmit có ngân sách riêng bảo đảm ít nhất một packet phục hồi dù inflight>=cwnd. Timeout/backoff có trần, không nhân RTO theo số packet trong batch.
+- A3 đã dùng 3 sequence phía sau được ACK/SACK mới làm bằng chứng fast retransmit; cùng một ACK lặp không tăng bằng chứng. RTO xử lý tail loss và loss retransmit; không lấy RTT từ retransmit. V2 giữ quy tắc này sau bước xác thực control.
+- Recovery boundary đã có ở A3 như mục 3.1: snapshot highest-sent theo từng stream, một fast-loss reduction và tối đa một timeout escalation trong epoch. V2 thêm kết thúc phần snapshot khi stream reset hợp lệ. Retransmit có ngân sách riêng để tiến triển dù inflight>=cwnd. Backoff theo packet có trần, không nhân RTO theo số packet trong batch.
 - A4 triển khai CUBIC với clock monotonic inject được; giữ AIMD làm baseline. Chi tiết công thức/tham số và nguồn đặc tả được bổ sung cùng A4; A1 không tuyên bố đã có thuật toán CUBIC.
 
 ## 7. Giới hạn và scheduling dự kiến
@@ -246,6 +250,6 @@ Server dùng timeout cho cả nhận request và drain ACK. Request không hợp
 
 Host UDP là **IP peer TCP đã kết nối**, không resolve hostname lại hoặc tin một host tùy ý từ response. B dùng cùng số cổng TCP/UDP 9000 trong cấu hình mặc định; constructor nhận tường minh cả hai. Sau ACK đóng TCP; chat/file tiếp tục UDP. Module bootstrap không tự auth. B phụ trách reconnect và thông báo UI.
 
-Test module: `tests/test_bootstrap.py`; có test harness nối TCP → UDP → login → DM bằng app hiện tại, chưa thay đổi lifecycle production. [Bàn giao và kết quả A2](A2-bootstrap.md); [stdout test](evidence/A2-bootstrap-tests.txt). B1 phải nối vào ứng dụng rồi kiểm đường chạy thật trước khi nghiệm thu toàn bộ Step 2.
+Test module: `tests/test_bootstrap.py`; có test harness nối TCP → UDP → login → DM bằng app hiện tại, chưa thay đổi lifecycle production. [Bàn giao và kết quả A2](A2-bootstrap.md). B1 phải nối vào ứng dụng rồi kiểm đường chạy thật trước khi nghiệm thu toàn bộ Step 2.
 
 B cần review các điểm: receipt riêng BEGIN/chunk; chuyển receive sang async handler+consume; relay queue có trần; reset theo chiều gửi; lỗi/stats; auth timeout và bootstrap lifecycle. Đây là hợp đồng bàn giao của A, chưa ghi nhận B đã tích hợp hoặc đồng ý. Thay đổi sau review phải cập nhật hợp đồng và test liên quan.

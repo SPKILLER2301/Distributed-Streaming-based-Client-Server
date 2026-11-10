@@ -3,8 +3,9 @@
 
   RttEstimator          : SRTT/RTTVAR/RTO theo RFC 6298 (đã cài sẵn).
   CongestionController  : AIMD đơn giản (slow start + congestion avoidance).
-                          Đề nhắc tới BBR/CUBIC: nếu còn thời gian, thay thân hàm on_ack/on_loss
-                          bằng CUBIC (cwnd = C*(t-K)^3 + Wmax) và nêu rõ trong báo cáo. AIMD đủ để có điểm.
+                          AIMD là baseline; A4 triển khai và bật CUBIC theo WORKPLAN.
+  A3: Connection quản lý recovery, chỉ gọi loss/timeout một lần mỗi đợt
+      (cho phép loss -> timeout escalation). Backoff nằm ở packet, không nhân RTO chung.
 
 Connection gọi:  cc.on_ack(n_acked)  khi nhận ACK mới;  cc.on_loss()  khi phát hiện mất gói (SACK/fast retransmit);
                  cc.on_timeout() khi RTO hết hạn.
@@ -30,7 +31,7 @@ class RttEstimator:
         self.rto = min(max(self.srtt + 4 * self.rttvar, C.MIN_RTO), C.MAX_RTO)
 
     def backoff(self) -> None:
-        """Hết RTO: nhân đôi RTO (exponential backoff)."""
+        """Legacy helper; A3 uses per-packet backoff instead of calling this."""
         self.rto = min(self.rto * 2, C.MAX_RTO)
 
 

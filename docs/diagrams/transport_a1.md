@@ -4,6 +4,8 @@ Ngày 09/11/2026. Nguồn hành vi và hợp đồng: [protocol](../protocol.md)
 
 Cập nhật A2, 10/11/2026: module TCP bootstrap và test harness TCP → UDP → login/chat đã chạy; các nhãn bootstrap “dự kiến” trong sơ đồ chỉ phần tích hợp production B1 chưa thực hiện. Xem [bàn giao A2](../A2-bootstrap.md).
 
+Cập nhật A3: fast retransmit/recovery đã triển khai và test. Phần chat vượt lỗ hổng file trong sơ đồ cuối vẫn là mục tiêu test HoL A7; xem [kết quả A3](../A3-reliability.md).
+
 ## Kiến trúc (TCP bootstrap là phần dự kiến)
 
 ```mermaid
