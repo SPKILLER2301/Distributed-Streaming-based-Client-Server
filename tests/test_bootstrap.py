@@ -236,24 +236,60 @@ def test_client_connect_phase_has_deadline(monkeypatch):
 
 
 @pytest.mark.parametrize("stop", [False, True])
-def test_server_timeout_and_stop_close_incomplete_requests(stop):
+def test_server_timeout_and_stop_close_incomplete_requests(stop, monkeypatch):
     async def run():
         async with bootstrap_server(timeout=10 if stop else 0.05) as server:
+            request_started = asyncio.Event()
+            exchange = server._exchange
+
+            async def observe_exchange(reader, writer):
+                request_started.set()
+                await exchange(reader, writer)
+
+            monkeypatch.setattr(server, "_exchange", observe_exchange)
             addr = server.local_addr
             reader, writer = await asyncio.open_connection(*addr)
             try:
                 writer.write(b'{"type":')
                 await writer.drain()
+                await asyncio.wait_for(request_started.wait(), 1)
+                accepted_tasks = tuple(server._tasks)
+                accepted_writers = tuple(server._writers)
+                assert accepted_tasks and all(not task.done() for task in accepted_tasks)
+                assert accepted_writers
                 if stop:
                     await asyncio.wait_for(server.stop(), 1)
-                    assert not server._tasks
-                    assert not server._writers
-                    with pytest.raises(OSError):
-                        await asyncio.open_connection(*addr)
-                assert await asyncio.wait_for(reader.read(), 1) == b""
+                    try:
+                        _, probe_writer = await asyncio.wait_for(
+                            # Windows can take over a second to report refusal.
+                            asyncio.open_connection(*addr), 3)
+                    except ConnectionRefusedError:
+                        pass
+                    else:
+                        # Clean up even if the listener unexpectedly survived.
+                        probe_writer.close()
+                        await asyncio.wait_for(probe_writer.wait_closed(), 1)
+                        pytest.fail("stopped bootstrap server still accepts connections")
+                try:
+                    data = await asyncio.wait_for(reader.read(), 1)
+                except ConnectionResetError:
+                    # Closing an incomplete request may produce RST or EOF.
+                    pass
+                else:
+                    assert data == b""
+                if not stop:
+                    await asyncio.wait_for(asyncio.gather(*accepted_tasks), 1)
+                assert all(task.done() for task in accepted_tasks)
+                assert all(peer_writer.is_closing() for peer_writer in accepted_writers)
+                assert not server._tasks
+                assert not server._writers
             finally:
                 writer.close()
-                await writer.wait_closed()
+                try:
+                    await asyncio.wait_for(writer.wait_closed(), 1)
+                except ConnectionResetError:
+                    # The same peer reset can also surface during cleanup.
+                    pass
             if not stop:
                 assert await bootstrap_connect(addr) == ("127.0.0.1", 9000)
     asyncio.run(run())
