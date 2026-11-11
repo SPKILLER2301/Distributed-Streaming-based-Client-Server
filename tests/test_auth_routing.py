@@ -1,5 +1,6 @@
 """Kiểm thử Registry/Auth và luồng đăng nhập + chat đầu cuối.   [B]"""
 import asyncio
+from contextlib import AsyncExitStack
 from pathlib import Path
 
 import pytest
@@ -35,31 +36,45 @@ async def _wait(cond, timeout=5.0):
         await asyncio.sleep(0.01)
 
 
-async def _drain(client):
-    out = []
-    while not client.events.empty():
-        out.append(client.events.get_nowait())
-    return out
+async def _receive_chat(client, timeout=5.0):
+    # Connection/user events can already fill the queue before chat is sent.
+    # Use one deadline for the whole wait, including unrelated events.
+    async with asyncio.timeout(timeout):
+        while True:
+            event = await client.events.get()
+            if event.get("event") == "chat":
+                return event
 
 
 def test_login_broadcast_private_end_to_end():
     async def run():
         server = CollabServer("127.0.0.1", 0, USERS)
-        await server.endpoint.start(("127.0.0.1", 0))
-        addr = ("127.0.0.1", server.endpoint.local_addr[1])
-        a, b = CollabClient(addr), CollabClient(addr)
-        await a.start(); await b.start()
-        assert (await a.login("alice", "alice123"))[0]
-        assert not (await b.login("bob", "sai"))[0]
-        assert (await b.login("bob", "bob123"))[0]
-        await _wait(lambda: "bob" in a.users)                  # a thấy bob online
-        b.send_chat("chào cả nhà")
-        a.send_chat("riêng", to="bob")
-        await _wait(lambda: a.events.qsize() >= 3 and b.events.qsize() >= 3)
-        ev_a, ev_b = await _drain(a), await _drain(b)
-        assert any(e["event"] == "chat" and e["text"] == "chào cả nhà" and e["from"] == "bob" for e in ev_a)
-        assert any(e["event"] == "chat" and e["private"] and e["from"] == "alice" for e in ev_b)
-        await a.stop(); await b.stop(); await server.endpoint.stop()
+        cleanup = AsyncExitStack()
+        cleanup.push_async_callback(server.endpoint.stop)
+        try:
+            await server.endpoint.start(("127.0.0.1", 0))
+            addr = ("127.0.0.1", server.endpoint.local_addr[1])
+            a, b = CollabClient(addr), CollabClient(addr)
+            # Register before start so partial startup/assertion failures
+            # still close both clients, then the server.
+            cleanup.push_async_callback(b.stop)
+            cleanup.push_async_callback(a.stop)
+            await a.start(); await b.start()
+            assert (await a.login("alice", "alice123"))[0]
+            assert not (await b.login("bob", "sai"))[0]
+            assert (await b.login("bob", "bob123"))[0]
+            await _wait(lambda: "bob" in a.users)              # a thấy bob online
+            b.send_chat("chào cả nhà")
+            a.send_chat("riêng", to="bob")
+            broadcast, private = await asyncio.gather(_receive_chat(a), _receive_chat(b))
+            assert broadcast["from"] == "bob"
+            assert broadcast["text"] == "chào cả nhà"
+            assert broadcast["private"] is False
+            assert private["from"] == "alice"
+            assert private["text"] == "riêng"
+            assert private["private"] is True
+        finally:
+            await cleanup.aclose()
     asyncio.run(run())
 
 
