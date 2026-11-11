@@ -315,7 +315,7 @@ def test_connection_refused_and_server_restart():
 
 
 def test_bootstrap_then_udp_login_and_chat(tmp_path):
-    """Test harness wires A2 to the real app; production integration is B1."""
+    """The real client bootstraps using the TCP listener, then logs in via UDP."""
     async def run():
         users = Path(__file__).resolve().parents[1] / "server/data/users.json"
         server = CollabServer("127.0.0.1", 0, str(users))
@@ -331,7 +331,7 @@ def test_bootstrap_then_udp_login_and_chat(tmp_path):
             for username in ("alice", "bob"):
                 udp_addr = await bootstrap_connect(bootstrap.local_addr)
                 assert udp_addr == ("127.0.0.1", port)
-                client = CollabClient(udp_addr, str(tmp_path / username))
+                client = CollabClient(bootstrap.local_addr, str(tmp_path / username))
                 clients.append(client)
                 await client.start()
                 assert (await client.login(username, username + "123"))[0]
