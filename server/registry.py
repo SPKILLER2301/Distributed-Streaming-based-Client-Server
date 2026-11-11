@@ -4,6 +4,7 @@ Danh sách user đang online.                               [Người phụ trá
 Server phải theo dõi: tên, conn_id, địa chỉ IP:port, thời điểm hoạt động cuối.
 Chỉ là cấu trúc dữ liệu thuần – không gọi mạng. Dễ unit-test (tests/test_auth_routing.py).
 """
+
 from __future__ import annotations
 
 import time
@@ -26,7 +27,7 @@ class Registry:
 
     def add(self, username: str, conn_id: int, addr: Tuple[str, int]) -> bool:
         """Trả False nếu tên đã đang online (không cho đăng nhập hai nơi)."""
-        if username in self._by_name:
+        if username in self._by_name or conn_id in self._by_conn:
             return False
         info = UserInfo(username, conn_id, addr)
         self._by_name[username] = self._by_conn[conn_id] = info

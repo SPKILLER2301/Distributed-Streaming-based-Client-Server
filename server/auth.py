@@ -1,33 +1,45 @@
-"""
-Xác thực đăng nhập.                                       [Người phụ trách: B]  (Bước 3)
+"""Salted PBKDF2 credentials. Demo passwords are documented in README."""
 
-Đọc server/data/users.json: {"username": "sha256(password) dạng hex"}.
-Mật khẩu đi qua mạng đã được mã hóa AES-GCM ở tầng transport.
-
-TODO(B) (tùy chọn): thêm salt (PBKDF2/scrypt) thay vì sha256 trần; giới hạn số lần đăng nhập sai.
-"""
 from __future__ import annotations
-
 import hashlib
 import hmac
 import json
-import logging
+import secrets
 from pathlib import Path
 
-log = logging.getLogger(__name__)
+ITERATIONS = 260_000
+
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.pbkdf2_hmac(
+        "sha256", password.encode(), bytes.fromhex(salt), ITERATIONS
+    )
+    return f"pbkdf2_sha256${ITERATIONS}${salt}${digest.hex()}"
 
 
 class Auth:
     def __init__(self, users_file: str | Path) -> None:
         try:
             self._users = json.loads(Path(users_file).read_text(encoding="utf-8"))
-        except (OSError, json.JSONDecodeError):
-            log.error("không đọc được %s – sẽ từ chối mọi đăng nhập", users_file)
+            if not isinstance(self._users, dict):
+                self._users = {}
+        except (OSError, ValueError):
             self._users = {}
 
     def verify(self, username: str, password: str) -> bool:
-        expected = self._users.get(username)
-        if expected is None:
+        if not isinstance(username, str) or not isinstance(password, str):
             return False
-        actual = hashlib.sha256(password.encode("utf-8")).hexdigest()
-        return hmac.compare_digest(expected, actual)      # so sánh hằng thời gian
+        if len(username) > 64 or len(password) > 1024:
+            return False
+        expected = self._users.get(username, "")
+        try:
+            algorithm, rounds, salt, digest = expected.split("$")
+            if algorithm != "pbkdf2_sha256" or not 100_000 <= int(rounds) <= 1_000_000:
+                return False
+            actual = hashlib.pbkdf2_hmac(
+                "sha256", password.encode(), bytes.fromhex(salt), int(rounds)
+            ).hex()
+            return hmac.compare_digest(digest, actual)
+        except (ValueError, TypeError, AttributeError):
+            return False

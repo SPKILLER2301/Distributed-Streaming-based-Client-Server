@@ -1,0 +1,11 @@
+{
+  "clients": 20,
+  "expected": 380,
+  "received": 380,
+  "duplicates": 0,
+  "login_seconds": 0.228,
+  "elapsed_seconds": 0.612,
+  "peak_python_bytes": 1293111,
+  "memory_scope": "load generator only; not server RSS",
+  "source": "observed test_load_twenty_clients run during B implementation; machine-dependent sample"
+}
