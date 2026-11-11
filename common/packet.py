@@ -15,7 +15,7 @@ from __future__ import annotations
 import struct
 from dataclasses import dataclass
 
-from .constants import HEADER_SIZE, PROTOCOL_VERSION
+from .constants import HEADER_SIZE, PROTOCOL_VERSION, MAX_DATAGRAM, PKT_STOP_STREAM
 
 # version, ptype, flags, stream_id, conn_id, seq, ack, sack, length
 HEADER_FORMAT = "!BBBHIIIIH"
@@ -55,10 +55,14 @@ def decode(data: bytes) -> Packet:
     """bytes -> Packet. Raise PacketError nếu hỏng."""
     if len(data) < HEADER_SIZE:
         raise PacketError("gói quá ngắn")
+    if len(data) > MAX_DATAGRAM:
+        raise PacketError("datagram quá lớn")
     (version, ptype, flags, stream_id, conn_id,
      seq, ack, sack, length) = struct.unpack(HEADER_FORMAT, data[:HEADER_SIZE])
     if version != PROTOCOL_VERSION:
         raise PacketError(f"sai phiên bản {version}")
+    if ptype > PKT_STOP_STREAM:
+        raise PacketError("unknown packet type")
     payload = data[HEADER_SIZE:]
     if len(payload) != length:
         raise PacketError("length không khớp payload")

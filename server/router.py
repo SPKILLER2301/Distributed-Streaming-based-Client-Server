@@ -66,7 +66,7 @@ class Router:
             self.send_user(sender, C.STREAM_CONTROL, M.FILE_ERROR,
                            file_id=msg.get("file_id"), reason=f"không gửi được tới '{to}'")
 
-    def relay_file_stream(self, conn_id: int, stream_id: int, data: bytes) -> None:
+    async def relay_file_stream(self, conn_id: int, stream_id: int, data: bytes) -> None:
         """Tin nhắn trên stream file (>=2). Message đầu = FILE_BEGIN (JSON), các message sau = chunk thô."""
         key = (conn_id, stream_id)
         relay = self._relays.get(key)
@@ -84,11 +84,11 @@ class Router:
                 return
             dst_stream = self.endpoint.open_stream(dest.conn_id)
             self._relays[key] = [dest.conn_id, dst_stream, size]
-            self.send_conn(dest.conn_id, dst_stream, M.FILE_BEGIN,
-                           **{"from": sender.username, "file_id": msg["file_id"], "size": size})
+            await self.endpoint.send_message(dest.conn_id, dst_stream, M.encode(M.FILE_BEGIN,
+                **{"from": sender.username, "file_id": msg["file_id"], "size": size}))
             return
         dst_conn, dst_stream, remaining = relay
-        self.endpoint.send(dst_conn, dst_stream, data)
+        await self.endpoint.send_message(dst_conn, dst_stream, data)
         relay[2] = remaining - len(data)
         if relay[2] <= 0:
             del self._relays[key]                           # file đã chuyển xong

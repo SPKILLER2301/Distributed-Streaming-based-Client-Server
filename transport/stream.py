@@ -18,6 +18,7 @@ from typing import Deque, Dict, List, Tuple
 
 from common import constants as C
 from common.packet import Packet
+from .flow import MessageTooLarge
 
 
 @dataclass
@@ -31,6 +32,9 @@ class InFlight:
     gap_acks: int = 0
     fast_retransmitted: bool = False
     wire_data: bytes = b""
+    # A4: ACKs from a flight that filled cwnd may grow CUBIC even as that
+    # flight drains. Sparse application/credit-limited flights may not.
+    cwnd_limited: bool = False
 
 
 class InvalidAck(ValueError):
@@ -43,6 +47,12 @@ class SendStream:
         self.next_seq = 0
         self.highest_sent = -1
         self.cumulative_ack = 0
+        self.cancelled = False
+        self.queued_bytes = 0
+        self.queued_messages = 0
+        self.sent_bytes = 0
+        self.receipts = {}
+        self.peer_credit = None
         self.pending: Deque[Packet] = deque()       # đã cắt gói, chờ được phép gửi
         self.unacked: Dict[int, InFlight] = {}      # seq -> InFlight
 
@@ -118,9 +128,18 @@ class RecvStream:
         self.expected = 0                              # seq tiếp theo cần để giao đúng thứ tự
         self.buffer: Dict[int, Tuple[int, bytes]] = {} # seq -> (flags, payload) nhận chưa đúng thứ tự
         self._fragments: List[bytes] = []
+        self.fragment_bytes = 0
+        self.fragment_packets = 0
+        self.message_packet_counts = []
+        self.received_bytes = self.consumed_bytes = 0
+        self.received_packets = self.consumed_packets = 0
+        self.reset_final = None
+        self.stopping = False
 
-    def on_packet(self, seq: int, flags: int, payload: bytes) -> List[bytes]:
+    def on_packet(self, seq: int, flags: int, payload: bytes,
+                  message_limit: int | None = None) -> List[bytes]:
         """Nhận 1 gói đã giải mã. Trả về các message hoàn chỉnh (đúng thứ tự) vừa hoàn thành, thường 0 hoặc 1."""
+        self.message_packet_counts = []
         if seq < self.expected or seq in self.buffer:
             return []                                  # gói trùng (do gửi lại)
         if seq >= self.expected + C.MAX_WINDOW:
@@ -131,9 +150,15 @@ class RecvStream:
             f, p = self.buffer.pop(self.expected)
             self.expected += 1
             self._fragments.append(p)
+            self.fragment_bytes += len(p)
+            self.fragment_packets += 1
+            if message_limit is not None and self.fragment_bytes > message_limit:
+                raise MessageTooLarge("receive message exceeds limit or missing EOM")
             if f & C.FLAG_EOM:
                 messages.append(b"".join(self._fragments))
+                self.message_packet_counts.append(self.fragment_packets)
                 self._fragments.clear()
+                self.fragment_bytes = self.fragment_packets = 0
         return messages
 
     def ack_info(self) -> Tuple[int, int]:

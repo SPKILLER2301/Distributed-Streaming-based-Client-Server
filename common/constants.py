@@ -5,7 +5,7 @@ QUY TẮC: file này là "hợp đồng" giữa hai người. Sửa giá trị n
 """
 
 # ---- Phiên bản & địa chỉ mặc định -----------------------------------------
-PROTOCOL_VERSION = 1
+PROTOCOL_VERSION = 2
 DEFAULT_SERVER_HOST = "127.0.0.1"
 DEFAULT_SERVER_PORT = 9000
 DEFAULT_UI_PORT = 8080
@@ -18,6 +18,13 @@ PKT_HELLO_REPLY = 3
 PKT_PING = 4
 PKT_PONG = 5
 PKT_CLOSE = 6
+PKT_CREDIT = 7
+PKT_CREDIT_PROBE = 8
+PKT_RESET_STREAM = 9
+PKT_RESET_ACK = 10
+PKT_STOP_STREAM = 11
+
+CONTROL_BUDGET = 16      # authenticated control frames per tick, coalesced by type/stream
 
 # ---- Cờ (flags) -------------------------------------------------------------
 FLAG_EOM = 0x01          # gói cuối cùng của một message (End-Of-Message)

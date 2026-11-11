@@ -22,20 +22,22 @@ class Clock:
 
 
 class Sender:
-    def __init__(self):
+    def __init__(self, algorithm="cubic"):
         self.clock, self.wire, self.closed = Clock(), [], []
         a, b = KeyExchange(), KeyExchange()
         self.conn = Connection(7, ("peer", 9000), a.derive_cipher(b.public_bytes, True),
                                lambda raw, addr: self.wire.append(raw),
                                lambda *args: None, lambda cid, reason: self.closed.append(reason),
-                               clock=self.clock)
+                               clock=self.clock, congestion_algorithm=algorithm)
 
     def send(self, count, sid=2):
         for _ in range(count):
             self.conn.send_message(sid, b"x")
 
     def ack(self, ack, sack=0, sid=2):
-        self.conn.handle_packet(Packet(C.PKT_ACK, stream_id=sid, ack=ack, sack=sack))
+        # This helper tests recovery after control authentication. Wire-level
+        # authenticated/replayed controls are exercised by A5 tests separately.
+        self.conn._on_ack(Packet(C.PKT_ACK, stream_id=sid, ack=ack, sack=sack))
 
     def tick(self, seconds=0):
         self.clock.advance(seconds)
@@ -51,6 +53,11 @@ def sent_stream(count=5):
         stream.enqueue(b"x")
         stream.mark_sent(stream.pending.popleft(), 100)
     return stream
+
+
+@pytest.fixture(params=["cubic", "aimd"])
+def algorithm(request):
+    return request.param
 
 
 @pytest.mark.parametrize("ack,sack", [(6, 0), (0, 1 << 4), (-1, 0), (0, -1), (0, 1 << 32)])
@@ -98,8 +105,8 @@ def test_fast_retransmit_requires_three_distinct_sequences():
     assert sender.conn.stats == before and sender.conn.cc.cwnd == cwnd
 
 
-def test_invalid_ack_does_not_inflate_cwnd_or_ack_progress():
-    sender = Sender()
+def test_invalid_ack_does_not_inflate_cwnd_or_ack_progress(algorithm):
+    sender = Sender(algorithm)
     sender.send(5)
     sender.ack(6)
     assert sender.conn.stats["invalid_acks"] == 1
@@ -111,7 +118,8 @@ def test_invalid_ack_does_not_inflate_cwnd_or_ack_progress():
 def test_sack_does_not_allow_sending_past_receive_sequence_window():
     sender = Sender()
     sender.conn.cc.cwnd = C.MAX_WINDOW
-    sender.conn.send_message(2, b"x" * C.MAX_PAYLOAD * 80)
+    for _ in range(80):
+        sender.conn.send_message(2, b"x" * C.MAX_PAYLOAD)
     assert len(sender.data_packets()) == 64
     sender.clock.advance(0.01)
     sender.ack(0, 0xFFFFFFFF)
@@ -121,8 +129,8 @@ def test_sack_does_not_allow_sending_past_receive_sequence_window():
     assert max(pkt.seq for pkt in sender.data_packets()) == 64
 
 
-def test_recovery_snapshot_uses_separate_boundaries_for_each_stream():
-    sender = Sender()
+def test_recovery_snapshot_uses_separate_boundaries_for_each_stream(algorithm):
+    sender = Sender(algorithm)
     sender.send(5, sid=2)
     sender.send(5, sid=3)
     sender.clock.advance(0.01)
@@ -140,19 +148,21 @@ def test_recovery_snapshot_uses_separate_boundaries_for_each_stream():
     assert sender.conn.stats["loss_reductions"] == 2
 
 
-def test_recovery_exits_at_snapshot_even_with_newer_data_outstanding():
-    sender = Sender()
-    sender.send(5)
+def test_recovery_exits_at_snapshot_even_with_newer_data_outstanding(algorithm):
+    sender = Sender(algorithm)
+    sender.send(10)
     sender.clock.advance(0.01)
-    sender.ack(1, 0b111)
-    sender.send(5)
-    assert sender.conn._recovery == {2: 4}
-    assert sender.conn.send_streams[2].highest_sent > 4
-    sender.ack(5)
+    # Leave two old packets outstanding: both controllers then have room
+    # for newer DATA despite their different loss-reduction factors.
+    sender.ack(5, 0b111)
+    sender.send(10)
+    assert sender.conn._recovery == {2: 9}
+    assert sender.conn.send_streams[2].highest_sent > 9
+    sender.ack(10)
     assert sender.conn._recovery is None
     assert sender.conn.send_streams[2].unacked  # Newly sent DATA remains.
     assert sender.conn.stats["loss_reductions"] == 1
-    sender.ack(6, 0b111)
+    sender.ack(11, 0b111)
     assert sender.conn.stats["recovery_epochs"] == 2
 
 
@@ -169,8 +179,8 @@ def test_each_packet_keeps_its_rto_snapshot():
     assert stream.unacked[1].retry_interval == 2 * C.MIN_RTO
 
 
-def test_timeout_batch_is_paced_and_backoff_does_not_multiply_per_packet():
-    sender = Sender()
+def test_timeout_batch_is_paced_and_backoff_does_not_multiply_per_packet(algorithm):
+    sender = Sender(algorithm)
     sender.send(10)
     sender.tick(C.INITIAL_RTO)
     assert sender.conn.stats["timeout_count"] == 1
@@ -204,9 +214,9 @@ def test_tail_loss_per_packet_backoff_is_capped_and_ignores_later_rtt_updates(mo
     assert sender.conn.stats["timeout_retransmitted"] == 6
 
 
-def test_fast_loss_can_escalate_to_timeout_only_once(monkeypatch):
+def test_fast_loss_can_escalate_to_timeout_only_once(monkeypatch, algorithm):
     monkeypatch.setattr(C, "PEER_TIMEOUT", 1000)
-    sender = Sender()
+    sender = Sender(algorithm)
     sender.send(5)
     sender.clock.advance(0.01)
     sender.ack(1, 0b111)
@@ -283,7 +293,7 @@ def test_sequence_overflow_is_atomic_and_closes_before_wrap():
 
 class Pair:
     """Two real encrypted Connections, queued delivery, and packet drop rules."""
-    def __init__(self, drop=None):
+    def __init__(self, drop=None, algorithm="cubic"):
         self.clock, self.queue = Clock(), deque()
         self.trace, self.attempts = [], {}
         self.received = {"client": [], "server": []}
@@ -304,7 +314,7 @@ class Pair:
             self.connections[name] = Connection(
                 7, ("peer", 9000), cipher, send,
                 lambda cid, sid, data, dest=name: self.received[dest].append((sid, data)),
-                lambda *args: None, clock=self.clock)
+                lambda *args: None, clock=self.clock, congestion_algorithm=algorithm)
 
     def flush(self):
         count = 0
@@ -322,9 +332,9 @@ class Pair:
 
 
 @pytest.mark.parametrize("missing", [(1,), (1, 2)])
-def test_targeted_data_loss_recovers_in_order_exactly_once(missing):
+def test_targeted_data_loss_recovers_in_order_exactly_once(missing, algorithm):
     pair = Pair(lambda source, pkt, n: source == "client" and pkt.ptype == C.PKT_DATA
-                and pkt.seq in missing and n == 1)
+                and pkt.seq in missing and n == 1, algorithm=algorithm)
     client = pair.connections["client"]
     expected = [bytes([i]) for i in range(8)]
     for data in expected:
@@ -340,7 +350,7 @@ def test_targeted_data_loss_recovers_in_order_exactly_once(missing):
 
 
 @pytest.mark.parametrize("kind", ["ack", "tail", "retransmit"])
-def test_ack_tail_and_retransmit_loss_use_rto_without_duplicate_delivery(kind):
+def test_ack_tail_and_retransmit_loss_use_rto_without_duplicate_delivery(kind, algorithm):
     def drop(source, pkt, attempt):
         if kind == "ack":
             return source == "server" and pkt.ptype == C.PKT_ACK and attempt == 1
@@ -348,7 +358,7 @@ def test_ack_tail_and_retransmit_loss_use_rto_without_duplicate_delivery(kind):
             return source == "client" and pkt.ptype == C.PKT_DATA and attempt == 1
         return source == "client" and pkt.ptype == C.PKT_DATA and attempt <= 2
 
-    pair = Pair(drop)
+    pair = Pair(drop, algorithm=algorithm)
     client = pair.connections["client"]
     client.send_message(2, b"payload")
     pair.flush()

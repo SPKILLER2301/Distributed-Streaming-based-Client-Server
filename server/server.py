@@ -38,8 +38,8 @@ class CollabServer:
         self.auth = Auth(users_file)
         self.router = Router(self.endpoint, self.registry)
         self.endpoint.set_handlers(on_connect=self._on_connect,
-                                   on_receive=self._on_receive,
                                    on_disconnect=self._on_disconnect)
+        self.endpoint.set_message_handler(self._receive_message)
 
     async def run(self) -> None:
         await self.endpoint.start((self.host, self.port))
@@ -57,11 +57,17 @@ class CollabServer:
             log.info("%s rời đi (%s)", user.username, reason)
             self.router.announce(M.USER_LEFT, username=user.username)
 
+    async def _receive_message(self, message) -> None:
+        # Transfer ownership only after the bounded outgoing queue accepts the
+        # relay chunk. Per-stream dispatch keeps a blocked file off chat's path.
+        if message.stream_id >= C.STREAM_FILE_BASE:
+            if self.registry.get_by_conn(message.conn_id):
+                await self.router.relay_file_stream(message.conn_id, message.stream_id, message.data)
+        else:
+            self._on_receive(message.conn_id, message.stream_id, message.data)
+        self.endpoint.consume(message)
+
     def _on_receive(self, conn_id: int, stream_id: int, data: bytes) -> None:
-        if stream_id >= C.STREAM_FILE_BASE:
-            if self.registry.get_by_conn(conn_id):
-                self.router.relay_file_stream(conn_id, stream_id, data)
-            return
         try:
             msg = M.decode(data)
         except ValueError:
@@ -95,7 +101,7 @@ class CollabServer:
             self.router.send_conn(conn_id, C.STREAM_CONTROL, M.AUTH_FAIL, reason="sai tên hoặc mật khẩu")
             return
         # Lấy addr từ connection để lưu vào registry (yêu cầu Bước 3: IP + port)
-        addr = self.endpoint.connections[conn_id].remote_addr
+        addr = self.endpoint.get_peer_addr(conn_id)
         if not self.registry.add(username, conn_id, addr):
             self.router.send_conn(conn_id, C.STREAM_CONTROL, M.AUTH_FAIL, reason="tài khoản đang được dùng")
             return

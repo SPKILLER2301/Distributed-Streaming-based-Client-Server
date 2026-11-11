@@ -165,13 +165,13 @@ class CollabClient:
         if item is None or self.conn_id is None:
             return
         sender, to = item
-        sid = self.endpoint.open_stream(self.conn_id)
-        self._send(sid, M.FILE_BEGIN, to=to, file_id=file_id, size=sender.size)
-        for n, chunk in enumerate(sender.chunks(), 1):
-            self.endpoint.send(self.conn_id, sid, chunk)
+        conn_id = self.conn_id
+        sid = self.endpoint.open_stream(conn_id)
+        await self.endpoint.send_message(conn_id, sid,
+            M.encode(M.FILE_BEGIN, to=to, file_id=file_id, size=sender.size))
+        for chunk in sender.chunks():
+            await self.endpoint.send_message(conn_id, sid, chunk)
             self._emit("file_progress", file_id=file_id, direction="send", done=sender.sent, total=sender.size)
-            if n % 64 == 0:                                   # TODO(A): thay bằng backpressure thật
-                await asyncio.sleep(0.01)
 
     def _on_disconnect(self, conn_id: int, reason: str) -> None:
         self.conn_id = None

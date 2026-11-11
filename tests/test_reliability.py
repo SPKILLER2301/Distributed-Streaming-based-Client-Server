@@ -68,9 +68,11 @@ def test_large_message_fragmentation_and_window():
     async def run():
         async with _pair() as (server, client, cid, _, got_s, _):
             blob = bytes(range(256)) * 2000  # ~512 KB, vượt cwnd khởi đầu
-            client.send(cid, 5, blob)
-            await _wait(lambda: got_s, timeout=10)
-            assert got_s == [(5, blob)]
+            for offset in range(0, len(blob), 8192):
+                await client.send_message(cid, 5, blob[offset:offset + 8192])
+            await _wait(lambda: sum(len(data) for _, data in got_s) == len(blob), timeout=10)
+            assert [sid for sid, _ in got_s] == [5] * ((len(blob) + 8191) // 8192)
+            assert b"".join(data for _, data in got_s) == blob
     asyncio.run(run())
 
 
@@ -89,11 +91,12 @@ def test_delivery_with_10_percent_loss():
     async def run():
         async with _pair(lambda: LossyLink(loss=0.10, seed=1)) as (server, client, cid, _, got_s, _):
             blob = b"x" * 200_000
-            client.send(cid, 5, blob)
-            await _wait(lambda: got_s, timeout=20)
+            for offset in range(0, len(blob), 8192):
+                await client.send_message(cid, 5, blob[offset:offset + 8192])
+            await _wait(lambda: sum(len(data) for _, data in got_s) == len(blob), timeout=20)
             conn = client.connections[cid]
             await _wait(lambda: not conn.send_streams[5].unacked, timeout=20)
-            assert got_s == [(5, blob)]
+            assert b"".join(data for _, data in got_s) == blob
             print(json.dumps({"case": "loss_10_percent", "seed_each_direction": 1,
                               "loss_each_direction": 0.1, "payload_bytes": len(blob),
                               "stats": conn.stats, "cwnd_packets": conn.cc.cwnd,
