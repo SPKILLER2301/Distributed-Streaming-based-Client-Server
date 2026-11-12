@@ -6,3 +6,4 @@ downloads/
 outbox/
 *.log
 reference/
+.pytest_a2_tmp/

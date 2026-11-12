@@ -1,0 +1,4 @@
+........................{"chat_file_busy": false, "samples": 20, "p50_seconds": 0.0003439499996602535, "p95_seconds": 0.001274899928830564, "acceptance_p95_seconds": 0.25}
+.{"chat_file_busy": true, "samples": 20, "p50_seconds": 0.0002692500129342079, "p95_seconds": 0.0005977998953312635, "acceptance_p95_seconds": 0.25}
+.
+26 passed, 1 deselected in 0.57s

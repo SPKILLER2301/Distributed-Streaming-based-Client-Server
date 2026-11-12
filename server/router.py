@@ -1,9 +1,10 @@
 """Application routing and authoritative file state. Owner: B.
 
-Transport v1 send() means enqueue only: this module does not claim backpressure.
+File relay awaits A5's bounded outgoing queue before returning receive credit.
 """
 
 from __future__ import annotations
+import asyncio
 import time
 from dataclasses import dataclass, field
 from common import constants as C, messages as M
@@ -25,6 +26,7 @@ class Router:
         self.endpoint, self.registry = endpoint, registry
         self.transfers = {}
         self._relays = {}
+        self._cleanup_tasks = set()
 
     def send_conn(self, conn_id, stream_id, msg_type, **fields):
         return self.endpoint.send(conn_id, stream_id, M.encode(msg_type, **fields))
@@ -61,7 +63,21 @@ class Router:
         transfer = self.transfers.pop(file_id, None)
         if transfer and transfer.relay:
             self._relays.pop(transfer.relay[:2], None)
+            _, _, dest_conn, dest_sid = transfer.relay
+            task = asyncio.create_task(self._cancel_relay(dest_conn, dest_sid))
+            self._cleanup_tasks.add(task)
+            task.add_done_callback(self._cleanup_tasks.discard)
         return transfer
+
+    async def _cancel_relay(self, conn_id, stream_id):
+        try:
+            await self.endpoint.cancel_stream(conn_id, stream_id, "file finished or aborted")
+        except ConnectionError:
+            pass  # Closing the connection already freed this relay's buffers.
+
+    async def stop(self):
+        # The server closes Endpoint first, waking any RESET_ACK waiters.
+        await asyncio.gather(*self._cleanup_tasks, return_exceptions=True)
 
     def fail(self, file_id, reason):
         transfer = self._remove(file_id)
@@ -113,7 +129,7 @@ class Router:
         if not self.send_user(to, 0, t, **{"from": sender, **fields}):
             self.fail(fid, "recipient disconnected")
 
-    def relay_file_stream(self, conn_id, stream_id, data):
+    async def relay_file_stream(self, conn_id, stream_id, data):
         key = (conn_id, stream_id)
         fid = self._relays.get(key)
         if fid is None:
@@ -140,13 +156,14 @@ class Router:
             transfer.state = "relaying" if transfer.size else "await_done"
             if transfer.size:
                 self._relays[key] = fid
-            if not self.send_conn(
-                dest.conn_id,
-                sid,
-                M.FILE_BEGIN,
-                **{"from": sender.username, "file_id": fid, "size": transfer.size},
-            ):
+            try:
+                await self.endpoint.send_message(dest.conn_id, sid, M.encode(
+                    M.FILE_BEGIN,
+                    **{"from": sender.username, "file_id": fid, "size": transfer.size},
+                ))
+            except (ConnectionError, RuntimeError):
                 self.fail(fid, "relay unavailable")
+                raise
         else:
             transfer = self.transfers[fid]
             if (
@@ -157,8 +174,13 @@ class Router:
                 self.fail(fid, "chunk exceeds offered size")
                 raise ValueError("invalid file chunk")
             _, _, dest_conn, dest_sid = transfer.relay
-            if not self.endpoint.send(dest_conn, dest_sid, data):
+            try:
+                await self.endpoint.send_message(dest_conn, dest_sid, data)
+            except (ConnectionError, RuntimeError):
                 self.fail(fid, "relay unavailable")
+                raise
+            if self.transfers.get(fid) is not transfer:
+                # FILE_ERROR/disconnect can remove the transfer while enqueue waits.
                 return
             transfer.remaining -= len(data)
             if not transfer.remaining:

@@ -1,0 +1,193 @@
+A+B conflict resolution: full suite
+Started (Asia/Saigon UTC+07): 2026-11-12T01:22:38.425471+07:00
+OS: Windows-11-10.0.26200-SP0
+Python: 3.14.4 (tags/v3.14.4:23116f9, Apr  7 2026, 14:10:54) [MSC v.1944 64 bit (AMD64)]
+HEAD: 8d8cef7621c5802fcd0d8490a95fd7b83f6d13a8
+MERGE_HEAD: 2882d6a4ee8650c61bb0e70436380d8b44163403
+Working tree: local conflict fixes; index intentionally unchanged; no commit/push
+Command: C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Scripts\python.exe -X utf8 -m pytest -q -rs -s -p no:cacheprovider -o faulthandler_timeout=120
+Exit code: 1
+
+..F..................F...............................................................................................................{"chat_file_busy": false, "samples": 20, "p50_seconds": 0.0008403999963775277, "p95_seconds": 0.0014076000079512596, "acceptance_p95_seconds": 0.25}
+.{"chat_file_busy": true, "samples": 20, "p50_seconds": 0.000539849977940321, "p95_seconds": 0.0013832999393343925, "acceptance_p95_seconds": 0.25}
+.Timeout (0:02:00)!
+Thread 0x000031cc (most recent call first):
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\transport\stream.py", line 90 in on_ack
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\transport\connection.py", line 195 in _on_ack
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\transport\connection.py", line 125 in handle_packet
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\tests\test_flow_control.py", line 60 in flush
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\tests\test_flow_control.py", line 68 in step
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\tests\test_flow_control.py", line 626 in test_large_transfer_memory_does_not_scale_with_total_payload
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\python.py", line 187 in pytest_pyfunc_call
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\python.py", line 1798 in runtest
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 184 in pytest_runtest_call
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 250 in <lambda>
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 361 in from_call
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 249 in call_and_report
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 139 in runtestprotocol
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\runner.py", line 118 in pytest_runtest_protocol
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\main.py", line 411 in pytest_runtestloop
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\main.py", line 387 in _main
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\main.py", line 333 in wrap_session
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\main.py", line 380 in pytest_cmdline_main
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_execution.py", line 147 in _multicall
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_manager.py", line 183 in _hookexec
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pluggy\_caller.py", line 197 in __call__
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\config\__init__.py", line 262 in _main
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\_pytest\config\__init__.py", line 286 in _console_main
+  File "C:\Users\Quang Vy\OneDrive\Documents\UNI\NAM 3\HK261\MMT\BTL\BTL1 (NEW)\Distributed-Streaming-based-Client-Server\.venv\Lib\site-packages\pytest\__main__.py", line 9 in <module>
+  File "<frozen runpy>", line 88 in _run_code
+  File "<frozen runpy>", line 198 in _run_module_as_main
+{"payload_mib": 10, "tracemalloc_peak_bytes": 744088, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 10485760}
+{"payload_mib": 100, "tracemalloc_peak_bytes": 740880, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 104857600}
+.............................................{"case": "loss_10_percent", "seed_each_direction": 1, "loss_each_direction": 0.1, "payload_bytes": 200000, "stats": {"sent": 195, "retransmitted": 26, "sent_payload_bytes": 200000, "acked_packets": 195, "acked_payload_bytes": 200000, "fast_retransmitted": 18, "timeout_retransmitted": 8, "timeout_count": 7, "invalid_acks": 0, "recovery_epochs": 10, "loss_reductions": 9, "timeout_reductions": 3, "flow_blocked": 0}, "cwnd_packets": 2.0999999999999996, "pending_packets": 0}
+..{"case": "targeted_data", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 0, "timeout_count": 0, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 0, "flow_blocked": 0}}
+.{"case": "targeted_ack", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_tail", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_retransmit", "stats": {"sent": 8, "retransmitted": 2, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 1, "flow_blocked": 0}}
+.ss
+================================== FAILURES ===================================
+___________________ test_login_broadcast_private_end_to_end ___________________
+
+    def test_login_broadcast_private_end_to_end():
+        async def run():
+            from tests.lossy_socket import LossyLink
+    
+            server = CollabServer("127.0.0.1", 0, USERS, tcp_port=0)
+            cleanup = AsyncExitStack()
+            cleanup.push_async_callback(_stop_app, server)
+            try:
+                await server.start()
+                addr = server._bootstrap.local_addr
+                a, b = CollabClient(addr), CollabClient(addr)
+                # Register before start so partial startup/assertion failures
+                # still close both clients, then the server.
+                cleanup.push_async_callback(_stop_app, b)
+                cleanup.push_async_callback(_stop_app, a)
+                await a.start(); await b.start()
+                assert (await a.login("alice", "alice123"))[0]
+                assert not (await b.login("bob", "sai"))[0]
+                assert (await b.login("bob", "bob123"))[0]
+                await _wait(lambda: "bob" in a.users)              # a thấy bob online
+                # Keep B's delayed-delivery regression with login/user events queued.
+                for endpoint in (server.endpoint, a.endpoint, b.endpoint):
+                    endpoint.link = LossyLink(delay=0.025)
+                b.send_chat("chào cả nhà")
+                a.send_chat("riêng", to="bob")
+                broadcast, private = await asyncio.gather(_receive_chat(a), _receive_chat(b))
+                assert broadcast["from"] == "bob"
+                assert broadcast["text"] == "chào cả nhà"
+                assert broadcast["private"] is False
+                assert private["from"] == "alice"
+                assert private["text"] == "riêng"
+                assert private["private"] is True
+            finally:
+                await cleanup.aclose()
+>       asyncio.run(run())
+
+tests\test_auth_routing.py:90: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Python314\Lib\asyncio\runners.py:204: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def run():
+        from tests.lossy_socket import LossyLink
+    
+        server = CollabServer("127.0.0.1", 0, USERS, tcp_port=0)
+        cleanup = AsyncExitStack()
+        cleanup.push_async_callback(_stop_app, server)
+        try:
+            await server.start()
+            addr = server._bootstrap.local_addr
+            a, b = CollabClient(addr), CollabClient(addr)
+            # Register before start so partial startup/assertion failures
+            # still close both clients, then the server.
+            cleanup.push_async_callback(_stop_app, b)
+            cleanup.push_async_callback(_stop_app, a)
+            await a.start(); await b.start()
+>           assert (await a.login("alice", "alice123"))[0]
+E           assert False
+
+tests\test_auth_routing.py:72: AssertionError
+__________________________ test_load_twenty_clients ___________________________
+
+tmp_path = WindowsPath('C:/Users/Quang Vy/AppData/Local/Temp/pytest-of-Quang Vy/pytest-35/test_load_twenty_clients0')
+
+    def test_load_twenty_clients(tmp_path):
+        from server.server import CollabServer
+    
+        async def run():
+            server = CollabServer("127.0.0.1", 0, USERS)
+            await server.start()
+            try:
+                result = await run_load(server.endpoint.local_addr, 20)
+                assert result["received"] == result["expected"] == 380
+                assert result["duplicates"] == 0
+                print(result)
+            finally:
+                await server.stop()
+    
+>       asyncio.run(run())
+
+tests\test_b_application.py:209: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Python314\Lib\asyncio\runners.py:204: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests\test_b_application.py:202: in run
+    result = await run_load(server.endpoint.local_addr, 20)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+addr = ('127.0.0.1', 57482), n = 20, timeout = 20
+
+    async def run_load(addr, n=20, timeout=20):
+        if not 2 <= n <= 20:
+            raise ValueError("clients must be 2..20")
+        clients = [CollabClient(addr) for _ in range(n)]
+        started = time.monotonic()
+        tracemalloc.start()
+        try:
+            await asyncio.wait_for(asyncio.gather(*(c.start() for c in clients)), timeout)
+            names = [f"user_{i:03d}" for i in range(1, n + 1)]
+            outcomes = await asyncio.wait_for(
+                asyncio.gather(
+                    *(c.login(name, name + "123") for c, name in zip(clients, names))
+                ),
+                timeout,
+            )
+            if not all(ok for ok, _ in outcomes):
+>               raise AssertionError(f"login failures: {outcomes}")
+E               AssertionError: login failures: [(False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt'), (False, 'server không phản hồi hoặc kết nối đã ngắt')]
+
+tests\load_test.py:29: AssertionError
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_reliability.py:151: TODO(A): chứng minh không có HoL blocking
+SKIPPED [1] tests\test_reliability.py:157: TODO(A): cần đóng kết nối khi quá MAX_RETRIES / PEER_TIMEOUT
+2 failed, 184 passed, 2 skipped in 310.79s (0:05:10)

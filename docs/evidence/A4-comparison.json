@@ -1,0 +1,196 @@
+{
+  "results": [
+    {
+      "algorithm": "aimd",
+      "scenario": "clean",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 0.325,
+      "goodput_mib_per_second": 0.721154,
+      "final_cwnd_packets": 64.0,
+      "dropped": {
+        "client": 0,
+        "server": 0
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 0,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 0,
+        "timeout_retransmitted": 0,
+        "timeout_count": 0,
+        "invalid_acks": 0,
+        "recovery_epochs": 0,
+        "loss_reductions": 0,
+        "timeout_reductions": 0,
+        "flow_blocked": 0
+      }
+    },
+    {
+      "algorithm": "cubic",
+      "scenario": "clean",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 0.325,
+      "goodput_mib_per_second": 0.721154,
+      "final_cwnd_packets": 64.0,
+      "dropped": {
+        "client": 0,
+        "server": 0
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 0,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 0,
+        "timeout_retransmitted": 0,
+        "timeout_count": 0,
+        "invalid_acks": 0,
+        "recovery_epochs": 0,
+        "loss_reductions": 0,
+        "timeout_reductions": 0,
+        "flow_blocked": 0
+      }
+    },
+    {
+      "algorithm": "aimd",
+      "scenario": "targeted",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 0.965,
+      "goodput_mib_per_second": 0.242876,
+      "final_cwnd_packets": 22.169402,
+      "dropped": {
+        "client": 1,
+        "server": 0
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 1,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 1,
+        "timeout_retransmitted": 0,
+        "timeout_count": 0,
+        "invalid_acks": 0,
+        "recovery_epochs": 1,
+        "loss_reductions": 1,
+        "timeout_reductions": 0,
+        "flow_blocked": 0
+      }
+    },
+    {
+      "algorithm": "cubic",
+      "scenario": "targeted",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 0.95,
+      "goodput_mib_per_second": 0.246711,
+      "final_cwnd_packets": 21.314834,
+      "dropped": {
+        "client": 1,
+        "server": 0
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 1,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 1,
+        "timeout_retransmitted": 0,
+        "timeout_count": 0,
+        "invalid_acks": 0,
+        "recovery_epochs": 1,
+        "loss_reductions": 1,
+        "timeout_reductions": 0,
+        "flow_blocked": 0
+      }
+    },
+    {
+      "algorithm": "aimd",
+      "scenario": "loss10",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0.1,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 5.2,
+      "goodput_mib_per_second": 0.045072,
+      "final_cwnd_packets": 4.569884,
+      "dropped": {
+        "client": 31,
+        "server": 31
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 33,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 21,
+        "timeout_retransmitted": 12,
+        "timeout_count": 8,
+        "invalid_acks": 0,
+        "recovery_epochs": 17,
+        "loss_reductions": 13,
+        "timeout_reductions": 4,
+        "flow_blocked": 0
+      }
+    },
+    {
+      "algorithm": "cubic",
+      "scenario": "loss10",
+      "seed_each_direction": 1,
+      "one_way_delay_seconds": 0.025,
+      "tick_seconds": 0.02,
+      "loss_each_direction": 0.1,
+      "payload_bytes": 245760,
+      "sha256": "0c2037cd18995d5c237e969f3f07c7acd3faaf248eed9f34d093cdcdadc72af1",
+      "duration_seconds": 8.97,
+      "goodput_mib_per_second": 0.026129,
+      "final_cwnd_packets": 5.293575,
+      "dropped": {
+        "client": 31,
+        "server": 31
+      },
+      "stats": {
+        "sent": 240,
+        "retransmitted": 39,
+        "sent_payload_bytes": 245760,
+        "acked_packets": 240,
+        "acked_payload_bytes": 245760,
+        "fast_retransmitted": 18,
+        "timeout_retransmitted": 21,
+        "timeout_count": 18,
+        "invalid_acks": 0,
+        "recovery_epochs": 16,
+        "loss_reductions": 10,
+        "timeout_reductions": 8,
+        "flow_blocked": 0
+      }
+    }
+  ]
+}

@@ -1,5 +1,5 @@
 import asyncio
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 from client.client import CollabClient
 from server.server import CollabServer
@@ -27,17 +27,24 @@ async def event(client, name, predicate=lambda ev: True, timeout=15):
 
 @asynccontextmanager
 async def session(tmp_path, count=2):
-    server = CollabServer("127.0.0.1", 0, USERS)
-    await server.start()
-    clients = [
-        CollabClient(server.endpoint.local_addr, str(tmp_path / str(i)))
-        for i in range(count)
-    ]
-    try:
+    server = CollabServer("127.0.0.1", 0, USERS, tcp_port=0)
+    async with AsyncExitStack() as cleanup:
+        cleanup.push_async_callback(stop_app, server)
+        await server.start()
+        clients = [
+            CollabClient(server._bootstrap.local_addr, str(tmp_path / str(i)))
+            for i in range(count)
+        ]
+        for client in clients:
+            cleanup.push_async_callback(stop_app, client)
         for client, name in zip(clients, ("alice", "bob", "carol")):
             await client.start()
             assert (await client.login(name, name + "123"))[0]
         yield server, clients
-    finally:
-        await asyncio.gather(*(c.stop() for c in clients), return_exceptions=True)
-        await server.stop()
+
+
+async def stop_app(app):
+    link, app.endpoint.link = app.endpoint.link, None
+    if link is not None:
+        link.close()
+    await app.stop()

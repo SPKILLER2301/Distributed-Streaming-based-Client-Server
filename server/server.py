@@ -28,9 +28,9 @@ class CollabServer:
         self._bootstrap = None
         self.endpoint.set_handlers(
             on_connect=self._on_connect,
-            on_receive=self._on_receive,
             on_disconnect=self._on_disconnect,
         )
+        self.endpoint.set_message_handler(self._receive_message)
 
     async def start(self):
         await self.endpoint.start((self.host, self.port))
@@ -70,6 +70,7 @@ class CollabServer:
         await asyncio.gather(*tasks, return_exceptions=True)
         self._auth_tasks.clear()
         await self.endpoint.stop()
+        await self.router.stop()
 
     async def run(self):
         await self.start()
@@ -111,11 +112,6 @@ class CollabServer:
 
     def _on_receive(self, conn_id, stream_id, data):
         try:
-            if stream_id >= C.STREAM_FILE_BASE:
-                if not self.registry.get_by_conn(conn_id):
-                    raise ValueError("login required")
-                self.router.relay_file_stream(conn_id, stream_id, data)
-                return
             if len(data) > 64 * 1024:
                 raise ValueError("message too large")
             msg = M.decode(data)
@@ -126,7 +122,7 @@ class CollabServer:
                     self._auth_tasks[conn_id] = asyncio.create_task(
                         self._handle_auth(conn_id, msg)
                     )
-                return
+                return self._auth_tasks[conn_id]
             user = self.registry.get_by_conn(conn_id)
             if user is None:
                 self.router.send_conn(conn_id, 0, M.AUTH_FAIL, reason="chưa đăng nhập")
@@ -150,6 +146,28 @@ class CollabServer:
                 raise ValueError("unsupported message type")
         except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
             self.router.send_conn(conn_id, 0, M.ERROR, reason=str(exc))
+
+    async def _receive_message(self, message):
+        try:
+            if message.stream_id >= C.STREAM_FILE_BASE:
+                if not self.registry.get_by_conn(message.conn_id):
+                    raise ValueError("login required")
+                self.registry.touch(message.conn_id)
+                await self.router.relay_file_stream(
+                    message.conn_id, message.stream_id, message.data
+                )
+            else:
+                auth_task = self._on_receive(
+                    message.conn_id, message.stream_id, message.data
+                )
+                if auth_task is not None:
+                    await auth_task
+        except (ValueError, KeyError, TypeError, OSError, RuntimeError) as exc:
+            self.router.send_conn(message.conn_id, 0, M.ERROR, reason=str(exc))
+        finally:
+            # Credit returns after processing/rejection or bounded relay enqueue.
+            # Each stream has its own consumer, so blocked file relay leaves chat free.
+            self.endpoint.consume(message)
 
     async def _handle_auth(self, conn_id, msg):
         try:

@@ -39,7 +39,7 @@ def test_auth_duplicate_repeat_and_connection_identity(tmp_path):
             # Duplicate username on another freshly connected client.
             from client.client import CollabClient
 
-            other = CollabClient(server.endpoint.local_addr)
+            other = CollabClient(server._bootstrap.local_addr)
             try:
                 await other.start()
                 assert not (await other.login("alice", "alice123"))[0]
@@ -126,6 +126,12 @@ class FakeEndpoint:
     def open_stream(self, cid):
         return 2
 
+    async def send_message(self, cid, sid, data):
+        return self.send(cid, sid, data)
+
+    async def cancel_stream(self, cid, sid, reason):
+        pass
+
 
 def make_router():
     registry = Registry()
@@ -149,26 +155,29 @@ def offer(router):
 
 
 def test_file_state_prevents_spoof_accept_begin_and_done():
-    router = make_router()
-    offer(router)
-    with pytest.raises(ValueError):
-        router.forward_signal(
-            "carol", dict(type=M.FILE_ACCEPT, to="alice", file_id="x")
-        )
-    begin = M.encode(M.FILE_BEGIN, to="bob", file_id="x", size=1)
-    with pytest.raises(ValueError):
-        router.relay_file_stream(1, 2, begin)
-    router.forward_signal("bob", dict(type=M.FILE_ACCEPT, to="alice", file_id="x"))
-    with pytest.raises(ValueError):
+    async def run():
+        router = make_router()
+        offer(router)
+        with pytest.raises(ValueError):
+            router.forward_signal(
+                "carol", dict(type=M.FILE_ACCEPT, to="alice", file_id="x")
+            )
+        begin = M.encode(M.FILE_BEGIN, to="bob", file_id="x", size=1)
+        with pytest.raises(ValueError):
+            await router.relay_file_stream(1, 2, begin)
         router.forward_signal("bob", dict(type=M.FILE_ACCEPT, to="alice", file_id="x"))
-    with pytest.raises(ValueError):
-        router.forward_signal(
-            "bob", dict(type=M.FILE_DONE, to="alice", file_id="x", ok=True)
-        )
-    router.relay_file_stream(1, 2, begin)
-    with pytest.raises(ValueError):
-        router.relay_file_stream(1, 2, b"xx")
-    assert not router.transfers and not router._relays
+        with pytest.raises(ValueError):
+            router.forward_signal("bob", dict(type=M.FILE_ACCEPT, to="alice", file_id="x"))
+        with pytest.raises(ValueError):
+            router.forward_signal(
+                "bob", dict(type=M.FILE_DONE, to="alice", file_id="x", ok=True)
+            )
+        await router.relay_file_stream(1, 2, begin)
+        with pytest.raises(ValueError):
+            await router.relay_file_stream(1, 2, b"xx")
+        assert not router.transfers and not router._relays
+
+    asyncio.run(run())
 
 
 @pytest.mark.parametrize("bad", [True, -1, "1", M.MAX_FILE_SIZE + 1])
@@ -271,5 +280,87 @@ def test_enqueue_failure_still_cleans_file_when_error_cannot_be_sent(tmp_path):
         c.endpoint.send = lambda *args: False
         await c._send_file_data(sender.file_id)
         assert not c._outgoing and not c._send_tasks
+
+    asyncio.run(run())
+
+
+def test_relay_retains_receive_credit_until_enqueue_and_keeps_chat_live(tmp_path, monkeypatch):
+    async def run():
+        gate, entered = asyncio.Event(), asyncio.Event()
+        async with session(tmp_path) as (server, (a, b)):
+            send = server.endpoint.send_message
+
+            async def blocked_enqueue(cid, sid, data):
+                if cid == b.conn_id and sid >= 2 and len(data) == 8192:
+                    entered.set()
+                    await gate.wait()
+                return await send(cid, sid, data)
+
+            monkeypatch.setattr(server.endpoint, "send_message", blocked_enqueue)
+            source = tmp_path / "backpressure.bin"
+            payload = b"a" * 8192 + b"z"
+            source.write_bytes(payload)
+            fid = a.send_file(str(source), "bob")
+            await wait_until(lambda: fid in b._incoming_offers)
+            b.accept_file(fid)
+            try:
+                await asyncio.wait_for(entered.wait(), 2)
+                source_conn = server.endpoint.connections[a.conn_id]
+                assert source_conn.get_stats().recv_buffered_bytes >= 8192
+                assert source_conn._deliveries  # ownership stays with the blocked consumer
+                assert server.router.transfers[fid].remaining == len(payload)
+                a.send_chat("chat while relay waits", to="bob")
+                assert (await event(b, "chat"))["text"] == "chat while relay waits"
+                assert not gate.is_set() and fid in a._outgoing
+                assert not any(ev["event"] == "file_done" for ev in a.events._queue)
+                gate.set()
+                received, sent = await asyncio.gather(
+                    event(b, "file_done", lambda ev: ev["file_id"] == fid),
+                    event(a, "file_done", lambda ev: ev["file_id"] == fid),
+                )
+                assert received["ok"] and sent["ok"]
+                assert (tmp_path / "1" / source.name).read_bytes() == payload
+                await wait_until(lambda: source_conn.get_stats().recv_buffered_bytes == 0)
+            finally:
+                gate.set()
+
+    asyncio.run(run())
+
+
+def test_first_hop_ack_waits_for_file_done_and_releases_transport_streams(tmp_path, monkeypatch):
+    async def run():
+        async with session(tmp_path) as (server, (a, b)):
+            deferred = []
+            forward = server.router.forward_signal
+
+            def hold_done(sender, msg):
+                if msg["type"] == M.FILE_DONE:
+                    deferred.append((sender, msg))
+                else:
+                    forward(sender, msg)
+
+            monkeypatch.setattr(server.router, "forward_signal", hold_done)
+            source = tmp_path / "ack-is-not-done.bin"
+            source.write_bytes(b"verified content")
+            fid = a.send_file(str(source), "bob")
+            await wait_until(lambda: fid in b._incoming_offers)
+            b.accept_file(fid)
+            assert (await event(b, "file_done"))["ok"]
+            progress = await event(a, "file_progress")
+            assert progress["stage"] == "acked_to_server"
+            assert progress["done"] == source.stat().st_size
+            await wait_until(lambda: bool(deferred) and fid not in a._send_tasks)
+            assert fid in a._outgoing
+            assert not any(ev["event"] == "file_done" for ev in a.events._queue)
+            assert server.router.transfers[fid].state == "await_done"
+            cid, sid = a._send_streams[fid]
+            _, _, relay_cid, relay_sid = server.router.transfers[fid].relay
+            assert not a.endpoint.connections[cid].send_streams[sid].cancelled
+            forward(*deferred[0])
+            assert (await event(a, "file_done"))["ok"]
+            await wait_until(lambda: not a._stream_cleanup_tasks and not server.router._cleanup_tasks)
+            assert a.endpoint.connections[cid].send_streams[sid].cancelled
+            assert server.endpoint.connections[relay_cid].send_streams[relay_sid].cancelled
+            assert not a._send_streams and not server.router.transfers
 
     asyncio.run(run())

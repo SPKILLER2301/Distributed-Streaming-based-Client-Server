@@ -1,6 +1,6 @@
 """Client application, reconnect supervisor and file lifecycle. Owner: B.
 
-On current transport v1, send progress is QUEUED bytes, not ACKed bytes.
+File producers await A5 enqueue and ACK; progress describes the first hop.
 Only FILE_DONE from the receiver confirms end-to-end success.
 """
 
@@ -40,6 +40,7 @@ class CollabClient:
             {},
         )
         self._send_tasks, self._owned_paths = {}, {}
+        self._send_streams, self._stream_cleanup_tasks = {}, set()
         self._sending = set()
 
     async def start(self):
@@ -114,6 +115,7 @@ class CollabClient:
         self._reconnect_task = None
         self._cleanup_files("client stopped")
         await self.endpoint.stop()
+        await asyncio.gather(*self._stream_cleanup_tasks, return_exceptions=True)
         self.conn_id = self.username = None
         self.users = []
 
@@ -323,6 +325,7 @@ class CollabClient:
             sender, to = self._outgoing[file_id]
             cid = self.conn_id
             sid = self.endpoint.open_stream(cid)
+            self._send_streams[file_id] = (cid, sid)
             await self._send_data(
                 cid,
                 sid,
@@ -350,16 +353,9 @@ class CollabClient:
             self._send_tasks.pop(file_id, None)
 
     async def _send_data(self, cid, sid, data):
-        # Adapter for A5's documented SendReceipt API. Current main exercises only v1.
-        send = getattr(self.endpoint, "send_message", None)
-        if send:
-            receipt = await send(cid, sid, data)
-            await receipt.wait_acked()
-            return "acked_to_server"
-        if not self.endpoint.send(cid, sid, data):
-            raise ConnectionError("transport did not enqueue message")
-        await asyncio.sleep(0)  # event-loop fairness only, NOT backpressure
-        return "queued"
+        receipt = await self.endpoint.send_message(cid, sid, data)
+        await receipt.wait_acked()
+        return "acked_to_server"
 
     def _notify_file_error(self, to, fid, reason):
         try:
@@ -371,6 +367,11 @@ class CollabClient:
         task = self._send_tasks.pop(fid, None)
         if task and task is not asyncio.current_task():
             task.cancel()
+        stream = self._send_streams.pop(fid, None)
+        if stream is not None and not self._stopping:
+            cleanup = asyncio.create_task(self._cancel_file_stream(*stream))
+            self._stream_cleanup_tasks.add(cleanup)
+            cleanup.add_done_callback(self._stream_cleanup_tasks.discard)
         rx = self._receivers.pop(fid, None)
         if rx:
             rx.abort()
@@ -387,6 +388,13 @@ class CollabClient:
                 Path(path).parent.rmdir()
             except OSError:
                 pass
+
+    async def _cancel_file_stream(self, cid, sid):
+        try:
+            await self.endpoint.cancel_stream(cid, sid, "file finished or aborted")
+        except ConnectionError:
+            # A closed connection has already discarded all of its streams.
+            pass
 
     def _cleanup_files(self, reason):
         for fid in (

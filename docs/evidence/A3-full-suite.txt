@@ -1,0 +1,63 @@
+..F.s............................................s...................... [ 78%]
+..................ss                                                     [100%]
+================================== FAILURES ===================================
+___________________ test_login_broadcast_private_end_to_end ___________________
+
+    def test_login_broadcast_private_end_to_end():
+        async def run():
+            server = CollabServer("127.0.0.1", 0, USERS)
+            await server.endpoint.start(("127.0.0.1", 0))
+            addr = ("127.0.0.1", server.endpoint.local_addr[1])
+            a, b = CollabClient(addr), CollabClient(addr)
+            await a.start(); await b.start()
+            assert (await a.login("alice", "alice123"))[0]
+            assert not (await b.login("bob", "sai"))[0]
+            assert (await b.login("bob", "bob123"))[0]
+            await _wait(lambda: "bob" in a.users)                  # a th\u1ea5y bob online
+            b.send_chat("ch\xe0o c\u1ea3 nh\xe0")
+            a.send_chat("ri�ng", to="bob")
+            await _wait(lambda: a.events.qsize() >= 3 and b.events.qsize() >= 3)
+            ev_a, ev_b = await _drain(a), await _drain(b)
+            assert any(e["event"] == "chat" and e["text"] == "ch\xe0o c\u1ea3 nh\xe0" and e["from"] == "bob" for e in ev_a)
+            assert any(e["event"] == "chat" and e["private"] and e["from"] == "alice" for e in ev_b)
+            await a.stop(); await b.stop(); await server.endpoint.stop()
+>       asyncio.run(run())
+
+tests\test_auth_routing.py:63: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Python314\Lib\asyncio\runners.py:204: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+    async def run():
+        server = CollabServer("127.0.0.1", 0, USERS)
+        await server.endpoint.start(("127.0.0.1", 0))
+        addr = ("127.0.0.1", server.endpoint.local_addr[1])
+        a, b = CollabClient(addr), CollabClient(addr)
+        await a.start(); await b.start()
+        assert (await a.login("alice", "alice123"))[0]
+        assert not (await b.login("bob", "sai"))[0]
+        assert (await b.login("bob", "bob123"))[0]
+        await _wait(lambda: "bob" in a.users)                  # a th\u1ea5y bob online
+        b.send_chat("ch\xe0o c\u1ea3 nh\xe0")
+        a.send_chat("ri�ng", to="bob")
+        await _wait(lambda: a.events.qsize() >= 3 and b.events.qsize() >= 3)
+        ev_a, ev_b = await _drain(a), await _drain(b)
+>       assert any(e["event"] == "chat" and e["text"] == "ch\xe0o c\u1ea3 nh\xe0" and e["from"] == "bob" for e in ev_a)
+E       assert False
+E        +  where False = any(<generator object test_login_broadcast_private_end_to_end.<locals>.run.<locals>.<genexpr> at 0x0000023A5432BAC0>)
+
+tests\test_auth_routing.py:60: AssertionError
+=========================== short test summary info ===========================
+SKIPPED [1] tests\\test_auth_routing.py:88: TODO(B): client r\u1edbt \u0111\u1ed9t ng\u1ed9t -> USER_LEFT \u0111\u01b0\u1ee3c g\u1eedi cho ng\u01b0\u1eddi c\xf2n l\u1ea1i
+SKIPPED [1] tests\\test_file_transfer.py:44: TODO(A): g\u1eedi file qua m\u1ea1ng c\xf3 m\u1ea5t g\xf3i (c\u1ea7n g\u1eedi l\u1ea1i \u1edf transport)
+SKIPPED [1] tests\\test_reliability.py:148: TODO(A): ch\u1ee9ng minh kh\xf4ng c\xf3 HoL blocking
+SKIPPED [1] tests\\test_reliability.py:154: TODO(A): c\u1ea7n \u0111\xf3ng k\u1ebft n\u1ed1i khi qu\xe1 MAX_RETRIES / PEER_TIMEOUT
+1 failed, 87 passed, 4 skipped in 14.00s

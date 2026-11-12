@@ -1,0 +1,10 @@
+..................................{"case": "loss_10_percent", "seed_each_direction": 1, "loss_each_direction": 0.1, "payload_bytes": 200000, "stats": {"sent": 173, "retransmitted": 25, "sent_payload_bytes": 200000, "acked_packets": 173, "acked_payload_bytes": 200000, "fast_retransmitted": 15, "timeout_retransmitted": 10, "timeout_count": 9, "invalid_acks": 0, "recovery_epochs": 8, "loss_reductions": 6, "timeout_reductions": 4}, "cwnd_packets": 4.168140074025552, "pending_packets": 0}
+..{"case": "targeted_data", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 0, "timeout_count": 0, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 0}}
+.{"case": "targeted_ack", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1}}
+.{"case": "targeted_tail", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1}}
+.{"case": "targeted_retransmit", "stats": {"sent": 8, "retransmitted": 2, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 1}}
+.ss
+=========================== short test summary info ===========================
+SKIPPED [1] tests\\test_reliability.py:148: TODO(A): ch\u1ee9ng minh kh\xf4ng c\xf3 HoL blocking
+SKIPPED [1] tests\\test_reliability.py:154: TODO(A): c\u1ea7n \u0111\xf3ng k\u1ebft n\u1ed1i khi qu\xe1 MAX_RETRIES / PEER_TIMEOUT
+40 passed, 2 skipped in 6.77s
