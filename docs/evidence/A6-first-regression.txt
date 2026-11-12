@@ -1,0 +1,151 @@
+...Fs..................................................................................................................................................................s........................{"chat_file_busy": false, "samples": 20, "p50_seconds": 0.0016179499798454344, "p95_seconds": 0.0022739999694749713, "acceptance_p95_seconds": 0.25}
+.{"chat_file_busy": true, "samples": 20, "p50_seconds": 0.000923300045542419, "p95_seconds": 0.0015018000267446041, "acceptance_p95_seconds": 0.25}
+.{"payload_mib": 10, "tracemalloc_peak_bytes": 743392, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 10485760}
+{"payload_mib": 100, "tracemalloc_peak_bytes": 740288, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 104857600}
+....................................................{"case": "loss_10_percent", "seed_each_direction": 1, "loss_each_direction": 0.1, "payload_bytes": 200000, "stats": {"sent": 195, "retransmitted": 39, "sent_payload_bytes": 200000, "acked_packets": 195, "acked_payload_bytes": 200000, "fast_retransmitted": 17, "timeout_retransmitted": 22, "timeout_count": 16, "invalid_acks": 0, "recovery_epochs": 10, "loss_reductions": 8, "timeout_reductions": 5, "flow_blocked": 0}, "cwnd_packets": 1.0, "pending_packets": 0}
+..{"case": "targeted_data", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 0, "timeout_count": 0, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 0, "flow_blocked": 0}}
+.{"case": "targeted_ack", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_tail", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_retransmit", "stats": {"sent": 8, "retransmitted": 2, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 1, "flow_blocked": 0}}
+.ss
+================================== FAILURES ===================================
+________________________ test_file_transfer_end_to_end ________________________
+
+fut = <Future cancelled>, timeout = 1.0
+
+    async def wait_for(fut, timeout):
+        """Wait for the single Future or coroutine to complete, with timeout.
+    
+        Coroutine will be wrapped in Task.
+    
+        Returns result of the Future or coroutine.  When a timeout occurs,
+        it cancels the task and raises TimeoutError.  To avoid the task
+        cancellation, wrap it in shield().
+    
+        If the wait is cancelled, the task is also cancelled.
+    
+        If the task suppresses the cancellation and returns a value instead,
+        that value is returned.
+    
+        This function is a coroutine.
+        """
+        # The special case for timeout <= 0 is for the following case:
+        #
+        # async def test_waitfor():
+        #     func_started = False
+        #
+        #     async def func():
+        #         nonlocal func_started
+        #         func_started = True
+        #
+        #     try:
+        #         await asyncio.wait_for(func(), 0)
+        #     except asyncio.TimeoutError:
+        #         assert not func_started
+        #     else:
+        #         assert False
+        #
+        # asyncio.run(test_waitfor())
+    
+    
+        if timeout is not None and timeout <= 0:
+            fut = ensure_future(fut)
+    
+            if fut.done():
+                return fut.result()
+    
+            await _cancel_and_wait(fut)
+            try:
+                return fut.result()
+            except exceptions.CancelledError as exc:
+                raise TimeoutError from exc
+    
+        async with timeouts.timeout(timeout):
+>           return await fut
+                   ^^^^^^^^^
+E           asyncio.exceptions.CancelledError
+
+C:\Python314\Lib\asyncio\tasks.py:488: CancelledError
+
+The above exception was the direct cause of the following exception:
+
+tmp_path = WindowsPath('C:/Users/Quang Vy/AppData/Local/Temp/pytest-of-Quang Vy/pytest-29/test_file_transfer_end_to_end0')
+
+    def test_file_transfer_end_to_end(tmp_path):
+        async def run():
+            server = CollabServer("127.0.0.1", 0, USERS)
+            await server.endpoint.start(("127.0.0.1", 0))
+            addr = ("127.0.0.1", server.endpoint.local_addr[1])
+            a = CollabClient(addr, str(tmp_path / "dl_a"))
+            b = CollabClient(addr, str(tmp_path / "dl_b"))
+            await a.start(); await b.start()
+            await a.login("alice", "alice123"); await b.login("bob", "bob123")
+            src = tmp_path / "data.bin"
+            payload = bytes(range(256)) * 1500                    # ~384 KB
+            src.write_bytes(payload)
+            file_id = a.send_file(str(src), "bob")
+            await _wait(lambda: file_id in b._incoming_offers)
+            b.accept_file(file_id)
+            await _wait(lambda: any(e["event"] == "file_done" for e in list(b.events._queue)), timeout=15)
+            assert (tmp_path / "dl_b" / "data.bin").read_bytes() == payload
+            await a.stop(); await b.stop(); await server.endpoint.stop()
+>       asyncio.run(run())
+
+tests\test_auth_routing.py:99: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+C:\Python314\Lib\asyncio\runners.py:204: in run
+    return runner.run(main)
+           ^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\runners.py:127: in run
+    return self._loop.run_until_complete(task)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+C:\Python314\Lib\asyncio\base_events.py:719: in run_until_complete
+    return future.result()
+           ^^^^^^^^^^^^^^^
+tests\test_auth_routing.py:98: in run
+    await a.stop(); await b.stop(); await server.endpoint.stop()
+                    ^^^^^^^^^^^^^^
+client\client.py:67: in stop
+    await self.endpoint.stop()
+transport\endpoint.py:184: in stop
+    await self._stop()
+transport\endpoint.py:212: in _stop
+    await asyncio.wait_for(asyncio.shield(self._socket_closed), 1.0)
+C:\Python314\Lib\asyncio\tasks.py:487: in wait_for
+    async with timeouts.timeout(timeout):
+               ^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _
+
+self = <Timeout [expired]>
+exc_type = <class 'asyncio.exceptions.CancelledError'>
+exc_val = CancelledError(), exc_tb = <traceback object at 0x000002299BD9A6C0>
+
+    async def __aexit__(
+        self,
+        exc_type: type[BaseException] | None,
+        exc_val: BaseException | None,
+        exc_tb: TracebackType | None,
+    ) -> bool | None:
+        assert self._state in (_State.ENTERED, _State.EXPIRING)
+    
+        if self._timeout_handler is not None:
+            self._timeout_handler.cancel()
+            self._timeout_handler = None
+    
+        if self._state is _State.EXPIRING:
+            self._state = _State.EXPIRED
+    
+            if self._task.uncancel() <= self._cancelling and exc_type is not None:
+                # Since there are no new cancel requests, we're
+                # handling this.
+                if issubclass(exc_type, exceptions.CancelledError):
+>                   raise TimeoutError from exc_val
+E                   TimeoutError
+
+C:\Python314\Lib\asyncio\timeouts.py:114: TimeoutError
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_auth_routing.py:103: TODO(B): client rớt đột ngột -> USER_LEFT được gửi cho người còn lại
+SKIPPED [1] tests\test_file_transfer.py:44: TODO(A): gửi file qua mạng có mất gói (cần gửi lại ở transport)
+SKIPPED [1] tests\test_reliability.py:151: TODO(A): chứng minh không có HoL blocking
+SKIPPED [1] tests\test_reliability.py:157: TODO(A): cần đóng kết nối khi quá MAX_RETRIES / PEER_TIMEOUT
+1 failed, 249 passed, 4 skipped in 82.36s (0:01:22)

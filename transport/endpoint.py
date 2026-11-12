@@ -19,8 +19,9 @@ Concurrency (Bước 4): dùng asyncio – một event loop xử lý mọi clien
 Resilience (Bước 7): mọi xử lý gói bọc try/except, gói hỏng chỉ bị bỏ, server không bao giờ crash.
 
 ĐÃ CÀI SẴN: handshake X25519 (có gửi lại HELLO), bảng kết nối, vòng lặp timer, hook mô phỏng mất gói (`self.link`).
-TODO(A): giới hạn số kết nối tối đa; chống HELLO flood (tùy chọn); xử lý lỗi UDP riêng của Windows
-         (WinError 10054 khi gửi tới cổng đã đóng – hiện chỉ ghi log trong error_received).
+A6: bounded connections, validated handshake, serialized start/stop and socket
+loss cleanup. ICMP/send errors are nonfatal; peer timeout handles dead peers.
+The unauthenticated handshake still does not establish server identity.
 """
 from __future__ import annotations
 
@@ -47,8 +48,11 @@ Addr = Tuple[str, int]
 
 class Endpoint(asyncio.DatagramProtocol):
     def __init__(self, is_server: bool = False, *, flow_limits: FlowLimits | None = None,
-                 congestion_algorithm: str = "cubic") -> None:
+                 congestion_algorithm: str = "cubic", max_connections: int = C.MAX_CONNECTIONS) -> None:
+        if type(max_connections) is not int or not 1 <= max_connections <= 65535:
+            raise ValueError("max_connections must be an integer in 1..65535")
         make_controller(congestion_algorithm)  # Reject invalid config before opening a socket.
+        self.max_connections = max_connections
         self.congestion_algorithm = congestion_algorithm
         self.is_server = is_server
         self.connections: Dict[int, Connection] = {}
@@ -65,6 +69,13 @@ class Endpoint(asyncio.DatagramProtocol):
         self._hello_by_addr: Dict[Addr, Tuple[int, bytes, bytes]] = {}
         # client: handshake đang chờ
         self._pending: Optional[Tuple[Addr, KeyExchange, asyncio.Future]] = None
+        self._lifecycle_lock = asyncio.Lock()
+        self._running = False
+        self._stopping = False
+        self._socket_closed = None
+        self._next_error_log = 0.0
+        self.stats = dict(invalid_packets=0, invalid_handshakes=0, resource_rejections=0,
+                          socket_errors=0, processing_errors=0)
 
     # ------------------------------------------------------------------ API công khai
     def set_handlers(self, on_connect=None, on_receive=None, on_disconnect=None) -> None:
@@ -80,16 +91,26 @@ class Endpoint(asyncio.DatagramProtocol):
         self._message_handler = handler
 
     async def start(self, local_addr: Addr = ("0.0.0.0", 0)) -> None:
-        loop = asyncio.get_running_loop()
-        await loop.create_datagram_endpoint(lambda: self, local_addr=local_addr)
-        self._tick_task = asyncio.create_task(self._tick_loop())
+        async with self._lifecycle_lock:
+            if self._transport is not None or self._tick_task is not None:
+                raise RuntimeError("endpoint is already started; stop before restarting")
+            loop = asyncio.get_running_loop()
+            await loop.create_datagram_endpoint(lambda: self, local_addr=local_addr)
+            self._running = True
+            self._tick_task = asyncio.create_task(self._tick_loop())
 
     @property
     def local_addr(self) -> Addr:
+        if not self._running or self._transport is None:
+            raise RuntimeError("endpoint is not running")
         return self._transport.get_extra_info("sockname")
 
     async def connect(self, remote_addr: Addr) -> int:
         """Client: handshake với server, trả về conn_id. Raise ConnectionError nếu không có phản hồi."""
+        if not self._running or self._stopping:
+            raise ConnectionClosed("endpoint is not running")
+        if self.is_server:
+            raise RuntimeError("server Endpoint cannot initiate a client handshake")
         if self._pending is not None:
             raise ConnectionError("another handshake is pending")
         remote = (socket.gethostbyname(remote_addr[0]), remote_addr[1])
@@ -152,6 +173,19 @@ class Endpoint(asyncio.DatagramProtocol):
             conn.close(reason)
 
     async def stop(self) -> None:
+        # A handler cancelled by another stop may itself call stop in finally.
+        # Returning here avoids a cycle: stop -> gather(handler) -> stop lock.
+        if self._stopping and asyncio.current_task() in self._consumer_tasks:
+            return
+        async with self._lifecycle_lock:
+            self._stopping = True
+            self._running = False
+            try:
+                await self._stop()
+            finally:
+                self._stopping = False
+
+    async def _stop(self) -> None:
         for conn in list(self.connections.values()):
             conn.close("endpoint_stopped")
         if self._pending is not None:
@@ -171,9 +205,19 @@ class Endpoint(asyncio.DatagramProtocol):
         self._consumer_tasks.clear()
         self._consumers.clear()
         self._consumer_queues.clear()
+        self._hello_by_addr.clear()
         if self._transport:
-            self._transport.close()
-            self._transport = None
+            transport = self._transport
+            transport.close()
+            if self._socket_closed is not None:
+                try:
+                    await asyncio.wait_for(asyncio.shield(self._socket_closed), 0.05)
+                except asyncio.TimeoutError:
+                    # Proactor UDP close may stall with a write in flight.
+                    # Receipts are already failed; the final CLOSE is best
+                    # effort. Abort pending I/O, then still confirm closure.
+                    transport.abort()
+                    await asyncio.wait_for(asyncio.shield(self._socket_closed), 0.5)
 
     # ------------------------------------------------------------------ gửi thô
     def sendto(self, data: bytes, addr: Addr) -> None:
@@ -185,19 +229,43 @@ class Endpoint(asyncio.DatagramProtocol):
             else:
                 self._transport.sendto(data, addr)
         except OSError as exc:
-            log.debug("sendto lỗi: %s", exc)
+            self.stats["socket_errors"] += 1
+            self._report_error("sendto lỗi: %s", exc)
 
     # ------------------------------------------------------------------ asyncio.DatagramProtocol
     def connection_made(self, transport) -> None:
         self._transport = transport
+        self._socket_closed = asyncio.get_running_loop().create_future()
+
+    def connection_lost(self, exc) -> None:
+        self._running = False
+        self._transport = None
+        for conn in list(self.connections.values()):
+            conn._finish("socket_closed")
+        self._hello_by_addr.clear()
+        if self._pending is not None and not self._pending[2].done():
+            self._pending[2].set_exception(ConnectionClosed("socket_closed"))
+        if self._tick_task is not None:
+            self._tick_task.cancel()
+        if self._socket_closed is not None and not self._socket_closed.done():
+            self._socket_closed.set_result(None)
+        if exc is not None:
+            self.stats["socket_errors"] += 1
+            self._report_error("socket đóng do lỗi: %s", exc)
 
     def error_received(self, exc: Exception) -> None:
-        log.debug("lỗi UDP: %s", exc)          # ví dụ ICMP port unreachable – bỏ qua, timer sẽ lo
+        self.stats["socket_errors"] += 1
+        # UDP errors do not reliably identify a connection. Do not close all
+        # peers for one ICMP/WinError 10054 notification; use their own timers.
+        self._report_error("lỗi UDP: %s", exc)
 
     def datagram_received(self, data: bytes, addr: Addr) -> None:
+        if not self._running or self._stopping:
+            return
         try:
             pkt = decode(data)
         except PacketError:
+            self.stats["invalid_packets"] += 1
             return                              # gói rác: bỏ
         try:
             if pkt.ptype == C.PKT_HELLO and self.is_server:
@@ -209,41 +277,68 @@ class Endpoint(asyncio.DatagramProtocol):
                 if conn is not None and conn.remote_addr == addr:
                     conn.handle_packet(pkt)
         except Exception:                       # Bước 7: không để 1 gói xấu làm sập server
-            log.exception("lỗi khi xử lý gói từ %s", addr)
+            self.stats["processing_errors"] += 1
+            self._report_error("lỗi khi xử lý gói từ %s", addr, exc_info=True)
 
     # ------------------------------------------------------------------ handshake
     def _handle_hello(self, pkt: Packet, addr: Addr) -> None:
+        if not self._valid_handshake(pkt):
+            self.stats["invalid_handshakes"] += 1
+            return
         known = self._hello_by_addr.get(addr)
         if known and known[1] == pkt.payload and known[0] in self.connections:
             self.sendto(known[2], addr)         # HELLO gửi lặp (mất REPLY): trả lời lại y hệt
             return
-        if known and known[0] in self.connections:
-            self.connections[known[0]].close()  # client khởi động lại với khóa mới: bỏ kết nối cũ
+        previous = self.connections.get(known[0]) if known else None
+        if previous is None and len(self.connections) >= self.max_connections:
+            self.stats["resource_rejections"] += 1
+            return
         kx = KeyExchange()
         try:
             cipher = kx.derive_cipher(pkt.payload, is_client=False)
         except CryptoError:
+            self.stats["invalid_handshakes"] += 1
             return
-        conn_id = int.from_bytes(os.urandom(4), "big") or 1
-        while conn_id in self.connections:
+        for _ in range(16):
             conn_id = int.from_bytes(os.urandom(4), "big") or 1
+            if conn_id not in self.connections:
+                break
+        else:
+            self.stats["resource_rejections"] += 1
+            return
         reply = encode(Packet(C.PKT_HELLO_REPLY, conn_id=conn_id, payload=kx.public_bytes))
+        # Validate key and allocate a fresh identity before touching the old
+        # session. Invalid HELLO must not disconnect an established peer.
+        if previous is not None:
+            previous.close("peer_restarted")
         self._hello_by_addr[addr] = (conn_id, pkt.payload, reply)
         self._make_connection(conn_id, addr, cipher)
         self.sendto(reply, addr)
         self._fire(self._on_connect, conn_id, addr)
 
     def _handle_hello_reply(self, pkt: Packet, addr: Addr) -> None:
+        if not self._valid_handshake(pkt):
+            self.stats["invalid_handshakes"] += 1
+            return
         if self._pending is None:
             return
         remote, kx, fut = self._pending
         if addr != remote or fut.done():
             return
-        cipher = kx.derive_cipher(pkt.payload, is_client=True)
+        if pkt.conn_id in self.connections or len(self.connections) >= self.max_connections:
+            self.stats["resource_rejections"] += 1
+            return
+        try:
+            cipher = kx.derive_cipher(pkt.payload, is_client=True)
+        except CryptoError:
+            self.stats["invalid_handshakes"] += 1
+            return
         self._make_connection(pkt.conn_id, addr, cipher)
         fut.set_result(pkt.conn_id)
 
     def _make_connection(self, conn_id: int, addr: Addr, cipher) -> Connection:
+        if conn_id in self.connections or len(self.connections) >= self.max_connections:
+            raise ConnectionError("connection capacity or identity unavailable")
         conn = Connection(conn_id, addr, cipher, self.sendto,
                           on_message=self._receive_sync,
                           on_closed=self._conn_closed, flow_limits=self.flow_limits,
@@ -306,6 +401,18 @@ class Endpoint(asyncio.DatagramProtocol):
 
     # ------------------------------------------------------------------ tiện ích
     @staticmethod
+    def _valid_handshake(pkt: Packet) -> bool:
+        return (len(pkt.payload) == 32 and not (pkt.flags or pkt.stream_id or pkt.seq or pkt.ack or pkt.sack)
+                and ((pkt.ptype == C.PKT_HELLO and pkt.conn_id == 0) or
+                     (pkt.ptype == C.PKT_HELLO_REPLY and pkt.conn_id != 0)))
+
+    def _report_error(self, message, *args, exc_info=False) -> None:
+        now = time.monotonic()
+        if now >= self._next_error_log:
+            self._next_error_log = now + 1.0
+            log.warning(message, *args, exc_info=exc_info)
+
+    @staticmethod
     def _fire(callback, *args) -> None:
         if callback is None:
             return
@@ -322,4 +429,6 @@ class Endpoint(asyncio.DatagramProtocol):
                 try:
                     conn.on_tick(now)
                 except Exception:
-                    log.exception("on_tick lỗi")
+                    self.stats["processing_errors"] += 1
+                    self._report_error("on_tick lỗi", exc_info=True)
+                    conn._finish("transport_error")

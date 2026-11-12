@@ -1,0 +1,16 @@
+....s...................................................................................................................................................................s........................{"chat_file_busy": false, "samples": 20, "p50_seconds": 0.0007653999491594732, "p95_seconds": 0.0011325000086799264, "acceptance_p95_seconds": 0.25}
+.{"chat_file_busy": true, "samples": 20, "p50_seconds": 0.0005572500522248447, "p95_seconds": 0.0014760999474674463, "acceptance_p95_seconds": 0.25}
+.{"payload_mib": 10, "tracemalloc_peak_bytes": 744160, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 10485760}
+{"payload_mib": 100, "tracemalloc_peak_bytes": 740512, "send_payload_peak": 262144, "receive_payload_peak": 262144, "bytes_consumed": 104857600}
+....................................................{"case": "loss_10_percent", "seed_each_direction": 1, "loss_each_direction": 0.1, "payload_bytes": 200000, "stats": {"sent": 195, "retransmitted": 24, "sent_payload_bytes": 200000, "acked_packets": 195, "acked_payload_bytes": 200000, "fast_retransmitted": 18, "timeout_retransmitted": 6, "timeout_count": 5, "invalid_acks": 0, "recovery_epochs": 10, "loss_reductions": 8, "timeout_reductions": 4, "flow_blocked": 0}, "cwnd_packets": 1.0, "pending_packets": 0}
+..{"case": "targeted_data", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 0, "timeout_count": 0, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 0, "flow_blocked": 0}}
+.{"case": "targeted_ack", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_tail", "stats": {"sent": 8, "retransmitted": 1, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 0, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 0, "timeout_reductions": 1, "flow_blocked": 0}}
+.{"case": "targeted_retransmit", "stats": {"sent": 8, "retransmitted": 2, "sent_payload_bytes": 8, "acked_packets": 8, "acked_payload_bytes": 8, "fast_retransmitted": 1, "timeout_retransmitted": 1, "timeout_count": 1, "invalid_acks": 0, "recovery_epochs": 1, "loss_reductions": 1, "timeout_reductions": 1, "flow_blocked": 0}}
+.ss
+=========================== short test summary info ===========================
+SKIPPED [1] tests\test_auth_routing.py:103: TODO(B): client rớt đột ngột -> USER_LEFT được gửi cho người còn lại
+SKIPPED [1] tests\test_file_transfer.py:44: TODO(A): gửi file qua mạng có mất gói (cần gửi lại ở transport)
+SKIPPED [1] tests\test_reliability.py:151: TODO(A): chứng minh không có HoL blocking
+SKIPPED [1] tests\test_reliability.py:157: TODO(A): cần đóng kết nối khi quá MAX_RETRIES / PEER_TIMEOUT
+251 passed, 4 skipped in 80.08s (0:01:20)

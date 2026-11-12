@@ -262,6 +262,8 @@ class FlowControl:
                 deadline, interval = self._probes.setdefault(sid, (now + self.rtt.rto, self.rtt.rto))
                 if now >= deadline:
                     self._transmit(Packet(C.PKT_CREDIT_PROBE, stream_id=sid))
+                    if self.closed:
+                        return
                     interval = min(interval * 2, C.MAX_RTO)
                     self._probes[sid] = now + interval, interval
             else:
@@ -275,12 +277,16 @@ class FlowControl:
                 reset["interval"] = min(reset["interval"] * 2, C.MAX_RTO)
                 reset["deadline"] = now + reset["interval"]
                 self._transmit(Packet(C.PKT_RESET_STREAM, stream_id=sid, payload=reset["body"]))
+                if self.closed:
+                    return
         for sid, (deadline, tries) in list(self._stop_requests.items()):
             if now >= deadline:
                 if tries >= C.MAX_RETRIES:
                     self._finish("too many retries")
                     return
                 self._transmit(Packet(C.PKT_STOP_STREAM, stream_id=sid, payload=b"\x01"))
+                if self.closed:
+                    return
                 self._stop_requests[sid] = now + self.rtt.rto, tries + 1
 
     def _discard_send(self, sid, reason="cancelled"):

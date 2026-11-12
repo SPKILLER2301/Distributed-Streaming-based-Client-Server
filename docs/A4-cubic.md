@@ -108,4 +108,4 @@ CUBIC chậm hơn AIMD trong ca seed 1 loss 10% này. Cửa sổ nhỏ, recovery
 
 ## 7. Ranh giới bàn giao
 
-A4 cung cấp controller, cấu hình mặc định, stats/log và bằng chứng trên. Các API send/consume/receipt/reset và giới hạn A5 giữ nguyên. A6 tiếp tục audit crypto/endpoint resilience; A7 hoàn thành HoL/disconnect và bằng chứng transport; B tiếp tục tích hợp ứng dụng/file/progress/reconnect. Log bằng chứng A5 là lịch sử AIMD, không dùng thay số liệu CUBIC mới.
+A4 cung cấp controller, cấu hình mặc định, stats/log và bằng chứng trên. Các API send/consume/receipt/reset và giới hạn A5 giữ nguyên. [A6](A6-security-resilience.md) được triển khai sau mốc log A4, bổ sung kiểm thử crypto và endpoint resilience. A7 tiếp tục HoL/disconnect và bằng chứng transport; B tiếp tục tích hợp ứng dụng/file/progress/reconnect. Log bằng chứng A5 là lịch sử AIMD, không dùng thay số liệu CUBIC mới.

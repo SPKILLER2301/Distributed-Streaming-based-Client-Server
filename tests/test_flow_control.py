@@ -392,32 +392,65 @@ def test_slow_async_file_handler_does_not_block_chat_and_stop_cleans_tasks():
     asyncio.run(run())
 
 
-def test_real_udp_producer_waits_for_slow_consumer():
+@pytest.mark.parametrize("finish", ["consume", "stop"])
+def test_real_udp_producer_waits_for_slow_consumer(finish):
     async def run():
-        gate = asyncio.Event()
+        gate, chat = asyncio.Event(), asyncio.Event()
         consumed = []
 
         def handler(ep):
             async def receive(msg):
-                await gate.wait()
-                consumed.append(msg.data)
+                if msg.stream_id == C.STREAM_CHAT:
+                    assert msg.data == b"chat"
+                    chat.set()
+                else:
+                    await gate.wait()
+                    consumed.append(msg.data)
                 ep.consume(msg)
             return receive
 
         async with endpoints(handler, limits=small_limits()) as (server, client, cid):
+            conn = client.connections[cid]
+            receipts = []
             async def produce():
                 for i in range(10):
-                    await client.send_message(cid, 2, bytes([i]) * 16)
+                    receipts.append(await client.send_message(cid, 2, bytes([i]) * 16))
             producer = asyncio.create_task(produce())
             try:
                 await eventually(lambda: server.get_stats(cid).recv_buffered_bytes == 32)
-                await asyncio.sleep(0.05)
+                await eventually(lambda: client.get_stats(cid).pending_bytes == 32)
                 assert not producer.done()
-                assert client.get_stats(cid).pending_bytes <= 32
-                gate.set()
-                await asyncio.wait_for(producer, 3)
-                await eventually(lambda: len(consumed) == 10)
-                assert consumed == [bytes([i]) * 16 for i in range(10)]
+                tx, rx = client.get_stats(cid), server.get_stats(cid)
+                assert tx.pending_bytes + tx.unacked_bytes <= 32
+                assert rx.recv_buffered_bytes == 32 and not consumed
+                receipt = await client.send_message(cid, C.STREAM_CHAT, b"chat")
+                await asyncio.wait_for(chat.wait(), 1)
+                await asyncio.wait_for(receipt.wait_acked(), 1)
+                assert not gate.is_set() and not producer.done() and not consumed
+                if finish == "consume":
+                    gate.set()
+                    await asyncio.wait_for(producer, 3)
+                    await eventually(lambda: len(consumed) == 10)
+                    await asyncio.wait_for(asyncio.gather(*(r.wait_acked() for r in receipts)), 3)
+                    assert consumed == [bytes([i]) * 16 for i in range(10)]
+                    assert server.get_stats(cid).recv_buffered_bytes == 0
+                else:
+                    consumers = tuple(server._consumer_tasks)
+                    assert consumers
+                    await asyncio.wait_for(server.stop(), 2)
+                    with pytest.raises(ConnectionClosed):
+                        await asyncio.wait_for(producer, 1)
+                    # Last queued file message cannot have an ACK: no receive credit.
+                    with pytest.raises(ConnectionClosed):
+                        await asyncio.wait_for(receipts[-1].wait_acked(), 1)
+                    assert all(task.done() for task in consumers)
+                    assert not server._consumer_tasks and not server._consumer_queues
+                    assert not conn.send_streams and not conn._deliveries
+                    assert conn.get_stats().pending_bytes == conn.get_stats().unacked_bytes == 0
+                print(json.dumps({"case": "slow_consumer", "finish": finish,
+                                  "stream_budget_bytes": 32, "blocked_sender_payload_bytes": tx.pending_bytes + tx.unacked_bytes,
+                                  "blocked_receiver_payload_bytes": rx.recv_buffered_bytes,
+                                  "chat_acked_while_blocked": True, "consumed_messages": len(consumed)}))
             finally:
                 producer.cancel()
                 await asyncio.gather(producer, return_exceptions=True)

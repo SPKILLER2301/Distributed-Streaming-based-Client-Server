@@ -30,3 +30,20 @@ def test_bad_version():
 def test_length_mismatch():
     with pytest.raises(PacketError):
         decode(encode(Packet(C.PKT_DATA, payload=b"abc")) + b"xx")
+
+
+def test_oversized_datagram_is_rejected_even_with_matching_length():
+    with pytest.raises(PacketError):
+        decode(encode(Packet(C.PKT_DATA, payload=b"x" * (C.MAX_DATAGRAM - C.HEADER_SIZE + 1))))
+
+
+@pytest.mark.parametrize("ptype", [C.PKT_STOP_STREAM + 1, 255])
+def test_unknown_packet_type_is_rejected(ptype):
+    with pytest.raises(PacketError):
+        decode(encode(Packet(ptype)))
+
+
+@pytest.mark.parametrize("raw", [b"", bytes(C.HEADER_SIZE - 1), bytes(C.HEADER_SIZE), bytes(C.MAX_DATAGRAM)])
+def test_arbitrary_malformed_bytes_raise_packet_error(raw):
+    with pytest.raises(PacketError):
+        decode(raw)

@@ -56,3 +56,4 @@ HEARTBEAT_INTERVAL = 2.0 # im lặng quá lâu thì gửi PING
 PEER_TIMEOUT = 10.0      # không nhận được gì quá lâu -> đóng kết nối
 HANDSHAKE_TIMEOUT = 1.5
 HANDSHAKE_RETRIES = 4
+MAX_CONNECTIONS = 64     # per Endpoint, established transport sessions (A6)
