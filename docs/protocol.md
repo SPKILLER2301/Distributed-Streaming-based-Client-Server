@@ -1,7 +1,8 @@
 # Đặc tả giao thức  [A+B – Bước 1]
 
-> Cập nhật A4 sau A5, 11/11/2026: **CUBIC mặc định**, AIMD còn chọn được để so sánh. Wire giữ **v2** với bounded queues, byte/packet credit, API async/consume/reset/stats và scheduler. Control authentication được triển khai sớm để bảo vệ credit; A6 còn review security/resilience tổng thể. Bootstrap A2 chờ B1 tích hợp lifecycle thật. [Bàn giao A4](A4-cubic.md), [bàn giao A5](A5-flow-control.md).
+> Cập nhật A6, 11/11/2026: handshake kiểm input trước thay phiên, tối đa 64 connection/Endpoint mặc định, lifecycle/socket cleanup có kiểm thử. **CUBIC mặc định**, wire giữ **v2** với credit, async API và authenticated control của A5. Bootstrap A2 chờ B1 tích hợp lifecycle thật; handshake vẫn chưa xác thực danh tính. [A4](A4-cubic.md), [A5](A5-flow-control.md), [A6](A6-security-resilience.md).
 > Audit và bằng chứng: [AUDIT_A.md](AUDIT_A.md), [baseline](evidence/A1-baseline.md). Mọi thay đổi API/wire phải cập nhật tài liệu và test cùng lần tích hợp.
+> Kiểm thử A7: [HoL, disconnect, receiver chậm và loss](A7-transport-tests.md); wire/API giữ nguyên. Hai stub transport đã có assertion và cleanup; test app/file B6 và LAN J3 là phạm vi riêng.
 
 ## 1. Tầng transport (UDP tin cậy) – do A phụ trách
 
@@ -25,7 +26,7 @@
 ### 1.3 Streams
 - `0` = control (AUTH, danh sách user, tín hiệu file)
 - `1` = chat (MSG_BROADCAST, MSG_PRIVATE)
-- `>=2` = mỗi file một stream riêng. Reassembly và async consumer độc lập; cwnd vẫn dùng chung. A5 đã test handler file chậm không chặn chat; test giữ mất packet file đích danh của A7 vẫn còn skip.
+- `>=2` = mỗi file một stream riêng. Reassembly và async consumer độc lập; cwnd vẫn dùng chung. A5/A7 kiểm handler file chậm không chặn chat. A7 còn giữ DATA seq 0 của stream file (gồm cả retransmit) cho đến khi chat được giao, rồi mới thả packet và kiểm file hoàn tất, trên cả CUBIC và AIMD.
 - Mỗi stream có không gian `seq` và cửa sổ riêng; congestion control dùng chung cho cả kết nối.
 
 ### 1.3b Message-oriented
@@ -100,7 +101,7 @@ Header hex: `0204000000000000070000000000000000000000000018` (23 byte). Wire PIN
 - Retransmit queue FIFO theo (stream_id,seq), không có entry trùng; timeout có thể nâng lý do fast đang chờ thành timeout. Một packet retransmit tối đa mỗi TICK_INTERVAL=0,02s trên connection, chung cho cả fast/timeout. ACK có thể kích hoạt slot ngay nếu đã đến hạn; không bù nhiều slot khi tick trễ. Gửi mới vẫn tuân cwnd; retransmit được phép tiến triển khi inflight>=cwnd sau giảm cửa sổ. Đây là ngân sách recovery của dự án, chưa phải pacing toàn bộ DATA hoặc bảo đảm công bằng (A5).
 - Recovery epoch snapshot highest_sent riêng mỗi stream có unacked, không so seq giữa stream. Chỉ giảm vì fast loss một lần khi vào epoch; có thể chuyển sang timeout và giảm theo timeout một lần trong epoch đó. ACK trong lúc recovery không tăng cwnd; kết thúc khi không còn unacked thuộc snapshot, không chờ DATA mới gửi sau snapshot. ACK loại cả entry retransmit đang chờ.
 - MAX_RETRIES=10 tính chung fast+timeout/packet; lần hết deadline sau 10 lần gửi lại đóng với reason `too many retries`. Peer timeout có thể xảy ra trước. Close/timeout dọn pending, unacked, wire cache, receive buffers và retransmit queue; callback disconnect một lần. DATA chỉ dùng seq 0..2^32-2; enqueue vượt giới hạn đóng với reason `sequence exhausted`, không wrap.
-- PING sau 2s không gửi; peer timeout sau 10s không nhận packet hợp lệ. Control tag/replay và DATA decrypt được kiểm trước cập nhật liveness. A6 tiếp tục review input/handshake/resilience.
+- PING sau 2s không gửi; peer timeout sau 10s không nhận packet hợp lệ. Control tag/replay và DATA decrypt được kiểm trước cập nhật liveness. A6 đã thêm validation các field không dùng, handshake và cap connection; kiểm thử và giới hạn bảo mật ở [A6](A6-security-resilience.md).
 - A5 đã thêm credit byte/packet-slot, queue có trần, consume và scheduler như mục 5–7. ACK chứng minh transport giữ dữ liệu, chưa chứng minh app xử lý xong. Không bảo đảm exactly-once qua reconnect.
 
 ### 3.2 Đơn vị thống nhất
@@ -128,7 +129,11 @@ await stop()
 
 Callbacks sync: on_connect(conn_id,addr), on_receive(conn_id,sid,data), on_disconnect(conn_id,reason). Không truyền coroutine vào callback sync. send=True chỉ enqueue; False khi đầy/đóng/không có connection. Message quá lớn raise MessageTooLarge, stream đã hủy raise StreamCancelled. local_addr chỉ đọc khi đang chạy. Chỉ một handshake pending/Endpoint.
 
-Stop đóng connection, đánh thức send/ACK/reset/handshake waiter, cancel rồi await tick/consumer tasks và đóng socket. Các reason A3 giữ nguyên (`closed locally`, `closed by peer`, `timeout`, `too many retries`, `sequence exhausted`); thêm endpoint_stopped, protocol_error, receive handler error và control counter exhausted. Reason chuẩn hóa/UI vẫn cần B/A6 review.
+Stop đóng connection, đánh thức send/ACK/reset/handshake waiter, cancel rồi await tick/consumer tasks và đóng socket. Start/stop được serialize; start lặp báo RuntimeError, stop lặp idempotent, start lại sau stop được phép. Stop chờ callback đóng socket: close bình thường tối đa 0,05s, nếu còn I/O thì abort rồi chờ callback tối đa 0,5s; hết hạn vẫn raise TimeoutError. Các reason A3 giữ nguyên (`closed locally`, `closed by peer`, `timeout`, `too many retries`, `sequence exhausted`); có endpoint_stopped, protocol_error, receive handler error, control counter exhausted. A6 thêm peer_restarted (HELLO mới hợp lệ cùng địa chỉ), socket_closed (socket mất), transport_error (lỗi tick ngoài dự kiến). B ánh xạ reason sang UI theo hợp đồng này.
+
+`Endpoint(max_connections=64)` giới hạn tổng transport session, gồm cả chưa auth; cho phép cấu hình số nguyên 1..65535. Khi đầy, bỏ HELLO tạo phiên mới, không loại peer đang hoạt động. HELLO trùng của phiên có sẵn vẫn nhận reply cache. HELLO/reply phải có key đúng 32 byte, flags/stream/seq/ack/sack=0; HELLO.conn_id=0, reply.conn_id!=0. Kiểm key hợp lệ và cấp ID mới trước khi thay phiên cũ. Reply phải từ đúng địa chỉ pending, không đè conn_id đã dùng. HELLO không có key confirmation hoặc identity authentication. Auth-specific cap/deadline còn thuộc B.
+
+Endpoint có counters tổng `stats`: invalid_packets, invalid_handshakes, resource_rejections, socket_errors, processing_errors; giữ qua restart. Không dùng các counters này thay TransportStats từng connection. Lỗi socket/process tại Endpoint được ghi log tối đa một lần/giây/Endpoint. `error_received`/sendto OSError không đóng toàn bộ peer; socket thật sự connection_lost thì fail các phiên và pending handshake, dọn cache và dừng timer. Khi quá trình tick của một connection có lỗi ngoài dự kiến, cô lập connection đó bằng transport_error.
 
 ## 5. Hợp đồng Endpoint đã triển khai A5
 
@@ -211,7 +216,7 @@ STOP_STREAM=11: body reason_u8; receiver có handler file lỗi yêu cầu peer 
 
 ### 6.3 Validation và recovery
 
-- Decode kiểm version, type, độ dài và MAX_DATAGRAM; Connection kiểm tag/replay/control flags/seq/body size, stream cap và ACK range. DATA tag hợp lệ trước thay state. Kiểm thử input/resilience đầy đủ tiếp tục ở A6. ACK sai phạm vi không giải phóng buffer hoặc tăng cwnd.
+- Decode kiểm version, type, độ dài và MAX_DATAGRAM; Connection kiểm conn_id/version, tag/replay/control flags/seq/body size, stream cap và ACK range. DATA chỉ dùng FLAG_EOM, ack/sack=0, seq!=2^32-1, payload wire tối thiểu một GCM tag. PING/PONG/CLOSE dùng sid=0; control không dùng seq. CLOSE reason trong 0..5. Các field header/độ dài control kiểm trước tag/replay; body ngữ nghĩa kiểm sau tag, nên counter của control có tag hợp lệ nhưng body sai có thể vẫn được ghi nhận. Tag sai không thay replay/liveness/credit. ACK sai phạm vi không giải phóng buffer hoặc tăng cwnd. [Test A6](A6-security-resilience.md).
 - DATA seq tối đa `2^32-2`, để ACK kế tiếp `2^32-1` còn biểu diễn được. Dừng/tạo phiên mới trước khi dùng hết seq/stream/counter; không wrap và không reuse nonce. Stream ID 2..65535, thêm trần tài nguyên mục 7.
 - Sender giữ cửa sổ sequence 64 tính từ cumulative ACK, ngoài cwnd và credit. Bitmap SACK 32 giữ nguyên; packet xa hơn có thể cần chờ ACK tích lũy hoặc timeout.
 - A3 đã dùng 3 sequence phía sau được ACK/SACK mới làm bằng chứng fast retransmit; cùng một ACK lặp không tăng bằng chứng. RTO xử lý tail loss và loss retransmit; không lấy RTT từ retransmit. V2 giữ quy tắc này sau bước xác thực control.
@@ -224,7 +229,7 @@ Giá trị đã áp dụng trong FlowLimits, không phải số đo RAM hay yêu
 
 | Tài nguyên | Trần áp dụng |
 |---|---|
-| Connection/Endpoint server | Giới hạn tổng/auth timeout còn thuộc A6/B; A5 không áp dụng trần 64 connection |
+| Connection/Endpoint | A6: mặc định 64 transport session, cấu hình max_connections; deadline/giới hạn theo auth thuộc B |
 | Stream mỗi chiều/connection | 32 active (gồm control/chat), 1024 ID từng dùng kể cả tombstone; hết thì phiên mới |
 | Message control/chat | 64 KiB |
 | Message file (gồm BEGIN/chunk) | 16 KiB; chunk B hiện 8192 byte |
@@ -238,7 +243,7 @@ Giá trị đã áp dụng trong FlowLimits, không phải số đo RAM hay yêu
 
 Message cap không vượt credit byte/packet-slot ban đầu để tránh chờ EOM trong khi sender hết credit. Mỗi DATA, kể cả payload rỗng, chiếm một receive packet-slot tới khi message được consume. Không ACK dữ liệu nếu không giữ được trong budget. Fragments vượt message cap/thiếu EOM tới mức vượt cap đóng với protocol_error. Reorder vẫn tối đa 64 packet/stream.
 
-Dành 128 KiB connection capacity/credit cho DATA stream 0/1: file chỉ sử dụng 2 MiB-128 KiB chưa consume tại một thời điểm. `conn_limit = 2 MiB + total_consumed`; `file_conn_limit = (2 MiB-128 KiB) + file_consumed`; `stream_limit = 256 KiB + stream_consumed`. Sender kiểm cumulative unique bytes mới của stream, connection và file class trước khi phát. Theo dõi riêng control/chat/file usage khi cấp limit để stream file không chiếm reserve. Phần cấp trước chưa dùng cũng là nghĩa vụ giữ chỗ; tổng grant connection phải được bảo đảm, không chỉ nhìn bytes đã tới. Mỗi chiều theo dõi ledger của từng stream và tổng connection; byte/slot trên từng connection được chặn; cap connection toàn Endpoint còn thuộc A6.
+Dành 128 KiB connection capacity/credit cho DATA stream 0/1: file chỉ sử dụng 2 MiB-128 KiB chưa consume tại một thời điểm. `conn_limit = 2 MiB + total_consumed`; `file_conn_limit = (2 MiB-128 KiB) + file_consumed`; `stream_limit = 256 KiB + stream_consumed`. Sender kiểm cumulative unique bytes mới của stream, connection và file class trước khi phát. Theo dõi riêng control/chat/file usage khi cấp limit để stream file không chiếm reserve. Phần cấp trước chưa dùng cũng là nghĩa vụ giữ chỗ; tổng grant connection phải được bảo đảm, không chỉ nhìn bytes đã tới. Mỗi chiều theo dõi ledger của từng stream và tổng connection; byte/slot trên từng connection được chặn; A6 thêm cap connection toàn Endpoint theo bảng trên.
 
 Scheduler dùng vòng weighted round-robin có con trỏ giữ qua các pump: tối đa 4 DATA control/chat rồi một lượt DATA file nếu file đủ điều kiện. File round-robin; không có chat thì file dùng phần rỗi, không có file thì chat dùng phần rỗi. ACK/credit/control bảo trì coalesce theo (type,sid), tối đa 16 frame mỗi tick 0,02s, không cần DATA credit. Retransmit theo ngân sách A3 riêng. Đo latency và khả năng file tiến triển bằng test, không suy từ tên scheduler.
 

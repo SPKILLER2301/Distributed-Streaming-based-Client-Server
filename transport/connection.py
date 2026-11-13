@@ -101,12 +101,14 @@ class Connection(FlowControl):
     def close(self, reason: str = "closed locally") -> None:
         if self.closed:
             return
-        self._transmit(Packet(C.PKT_CLOSE, payload=b"\x00"))
-        self._finish(reason)
+        try:
+            self._transmit(Packet(C.PKT_CLOSE, payload=b"\x00"))
+        finally:
+            self._finish(reason)
 
     # ------------------------------------------------------------------ nhận gói
     def handle_packet(self, pkt: Packet) -> None:
-        if self.closed:
+        if self.closed or pkt.conn_id != self.conn_id or pkt.version != C.PROTOCOL_VERSION:
             return
         if pkt.ptype == C.PKT_DATA:
             self._on_data(pkt)
@@ -115,10 +117,15 @@ class Connection(FlowControl):
                  C.PKT_CREDIT: CREDIT.size, C.PKT_CREDIT_PROBE: 0,
                  C.PKT_RESET_STREAM: RESET.size, C.PKT_RESET_ACK: RESET.size,
                  C.PKT_STOP_STREAM: 1}
-        if pkt.ptype not in sizes or not self._authenticate_control(pkt):
+        if pkt.ptype not in sizes:
             return
-        if (pkt.flags or len(pkt.payload) != sizes[pkt.ptype] or pkt.seq or
-                (pkt.ptype != C.PKT_ACK and (pkt.ack or pkt.sack))):
+        if (pkt.flags or len(pkt.payload) != sizes[pkt.ptype] + 24 or pkt.seq or
+                (pkt.ptype != C.PKT_ACK and (pkt.ack or pkt.sack)) or
+                (pkt.ptype in (C.PKT_PING, C.PKT_PONG, C.PKT_CLOSE) and pkt.stream_id)):
+            return
+        if not self._authenticate_control(pkt):
+            return
+        if pkt.ptype == C.PKT_CLOSE and pkt.payload[0] > 5:
             return
         try:
             if pkt.ptype == C.PKT_ACK:
@@ -144,7 +151,8 @@ class Connection(FlowControl):
             self.close("protocol_error")
 
     def _on_data(self, pkt: Packet) -> None:
-        if pkt.flags & ~C.FLAG_EOM or len(pkt.payload) > C.MAX_PAYLOAD + C.GCM_TAG_SIZE:
+        if (pkt.flags & ~C.FLAG_EOM or pkt.ack or pkt.sack or pkt.seq == 0xFFFFFFFF or
+                not C.GCM_TAG_SIZE <= len(pkt.payload) <= C.MAX_PAYLOAD + C.GCM_TAG_SIZE):
             return
         aad = pkt.header_bytes()                    # header dựng lại giống hệt bên gửi
         try:
@@ -278,6 +286,9 @@ class Connection(FlowControl):
         if now >= self._control_at + C.TICK_INTERVAL:
             self._control_at, self._control_used = now, 0
         while self._control_pending and self._control_used < C.CONTROL_BUDGET and not self.closed:
+            if self._control_counter >= 1 << 64:
+                self._finish("control counter exhausted")
+                return
             _, pkt = self._control_pending.popitem(last=False)
             self._control_used += 1
             self._send_wire(self._encode_packet(pkt), now)

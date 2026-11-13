@@ -4,7 +4,7 @@ Mã hóa payload.                                           [Người phụ trá
 Thiết kế:
   1. Handshake: mỗi bên sinh cặp khóa X25519 tạm thời, trao đổi khóa công khai trong HELLO / HELLO_REPLY.
   2. Từ bí mật chung dùng HKDF-SHA256 sinh 64 byte: 32 byte khóa client->server, 32 byte khóa server->client.
-     => mỗi chiều một khóa riêng nên nonce không bao giờ trùng giữa hai chiều.
+     => mỗi chiều một khóa riêng; yêu cầu duy nhất áp dụng cho cặp (khóa, nonce).
   3. Mỗi gói DATA mã hóa bằng AES-256-GCM:
         nonce = 0x00 || stream_id(2B) || seq(4B) || 5 byte 0 (wire v2)
         AAD   = header của gói  -> sửa header cũng bị phát hiện
@@ -38,7 +38,17 @@ class SessionCipher:
 
     @staticmethod
     def _nonce(stream_id: int, seq: int) -> bytes:
+        if type(stream_id) is not int or not 0 <= stream_id < 1 << 16:
+            raise ValueError("stream_id must fit uint16")
+        if type(seq) is not int or not 0 <= seq < 1 << 32:
+            raise ValueError("sequence must fit uint32")
         return b"\x00" + struct.pack("!HI", stream_id, seq) + b"\x00" * 5
+
+    @staticmethod
+    def _control_nonce(counter: int) -> bytes:
+        if type(counter) is not int or not 0 <= counter < 1 << 64:
+            raise ValueError("control counter must fit uint64")
+        return b"\x01" + struct.pack("!Q", counter) + b"\x00" * 3
 
     def encrypt(self, stream_id: int, seq: int, aad: bytes, plaintext: bytes) -> bytes:
         """Trả về ciphertext + 16 byte tag."""
@@ -51,11 +61,11 @@ class SessionCipher:
             raise CryptoError("tag không hợp lệ") from exc
 
     def encrypt_control(self, counter: int, aad: bytes, plaintext: bytes) -> bytes:
-        nonce = b"\x01" + struct.pack("!Q", counter) + b"\x00" * 3
+        nonce = self._control_nonce(counter)
         return self._send.encrypt(nonce, plaintext, aad)
 
     def decrypt_control(self, counter: int, aad: bytes, ciphertext: bytes) -> bytes:
-        nonce = b"\x01" + struct.pack("!Q", counter) + b"\x00" * 3
+        nonce = self._control_nonce(counter)
         try:
             return self._recv.decrypt(nonce, ciphertext, aad)
         except InvalidTag as exc:

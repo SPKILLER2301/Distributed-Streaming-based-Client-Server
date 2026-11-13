@@ -6,7 +6,7 @@ Ngày: 11/11/2026 (Asia/Saigon). Revision nền `82e361a39ac0eb47a848e1e5a888c06
 
 Đã triển khai byte/packet credit theo stream và connection, budget dành riêng control/chat, API gửi có chờ/ACK receipt, nhận async theo stream/consume, reset có retry, stats snapshot và scheduler weighted round-robin. Đã nối producer file và relay hiện có sang API gửi có chờ để không bỏ chunk khi queue đầy.
 
-**Wire version đã tăng lên 2.** Cả client và server phải chạy source mới; không tương thích wire v1. Bootstrap mặc định lấy version=2 từ constants. Khi ghi bằng chứng A5 bên dưới, controller còn AIMD. A4 triển khai sau A5 đã bật CUBIC mặc định, giữ wire v2; kết quả mới và cách chọn AIMD ở [A4-cubic.md](A4-cubic.md). Tổng audit security/resilience của A6 và việc chung J1/J2 vẫn còn.
+**Wire version đã tăng lên 2.** Cả client và server phải chạy source mới; không tương thích wire v1. Bootstrap mặc định lấy version=2 từ constants. Khi ghi bằng chứng A5 bên dưới, controller còn AIMD. A4 triển khai sau A5 đã bật CUBIC mặc định, giữ wire v2; kết quả mới và cách chọn AIMD ở [A4-cubic.md](A4-cubic.md). Sau đó [A6](A6-security-resilience.md) bổ sung validation, cap connection và kiểm thử crypto/lifecycle. Việc chung J1/J2 vẫn cần nghiệm thu riêng.
 
 ## File và phạm vi
 
@@ -128,6 +128,6 @@ Kiểm tài liệu/code: AST parse đạt cho các file thay đổi chính; ví 
 
 - B3/B4 nối ACK receipt với file ID/UI, FILE_ERROR và cleanup receiver/sender task/file handle. Progress hiện tại của app vẫn đếm enqueue; A5 chỉ cung cấp API ACK đúng nghĩa.
 - B5 giới hạn upload HTTP/UI event queue; số đo memory transport không bao gồm các buffer app này.
-- A4 đã bổ sung CUBIC sau mốc bằng chứng A5; A6 review crypto/handshake/connection cap/lifecycle input/Windows. Hiện chưa có trần tổng connection ở Endpoint và chưa có negotiation profile.
+- A4 đã bổ sung CUBIC sau mốc bằng chứng A5; A6 đã thêm validation handshake, cap connection mặc định 64 và xử lý close UDP còn pending trên Windows. Chưa có negotiation profile hoặc xác thực danh tính trong handshake. Các log A5 vẫn là bằng chứng tại thời điểm chạy A5.
 - A7 hoàn thiện HoL loss đích danh và peer disconnect; B6 file/hash qua loss cả hai chặng và load 20 app client. A5 không thay thế các phép thử này.
 - Test sạch/LAN, J1/B review API và các bước nộp bài vẫn theo WORKPLAN.
